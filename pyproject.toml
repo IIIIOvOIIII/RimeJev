@@ -1,0 +1,33 @@
+[project]
+name = "rime-jev"
+version = "0.2.4"
+description = "Nonblocking contextual candidate decisions for Squirrel and Rime"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "thisthat @ git+https://github.com/FLock-io/this-that-model@6af11c63c8bb260aa4bed2b7717f33f25decd16e",
+  "truststore==0.10.4",
+  "requests==2.34.2",
+]
+
+[dependency-groups]
+dev = [
+    "jsonschema>=4,<5",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "pyyaml==6.0.3",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.coverage.run]
+patch = ["subprocess"]
+source = ["rime_jev"]

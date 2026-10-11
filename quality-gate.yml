@@ -1,0 +1,39 @@
+schema_version: 2.0.0
+project: Rime-Jev
+artifacts:
+  dir: artifacts/quality-gate
+coverage:
+  backend:
+    format: cobertura
+    path: artifacts/coverage/backend.xml
+    minimum: {lines: 85}
+  # Native Swift lines are enforced at 80% by the frontend command; LLVM emits no branch counters.
+commands:
+  backend:
+    argv: [.venv/bin/python, -m, pytest, tests, --cov=rime_jev, --cov-branch, '--cov-report=xml:artifacts/coverage/backend.xml', -q]
+    timeout_seconds: 120
+    side_effect: local
+  frontend:
+    argv: [bash, scripts/coverage_swift.sh]
+    timeout_seconds: 120
+    side_effect: local
+  lint:
+    argv: [.venv/bin/python, -m, compileall, -q, src, scripts]
+    timeout_seconds: 30
+    side_effect: local
+  build:
+    argv: [env, SQUIRREL_ARCHS=arm64, bash, scripts/build_squirrel.sh]
+    timeout_seconds: 300
+    side_effect: local
+  deploy_contracts:
+    argv: [.venv/bin/python, scripts/test_rime_bridge.py]
+    timeout_seconds: 120
+    side_effect: local
+  e2e_prod_smoke:
+    argv: [.venv/bin/python, scripts/smoke_installed.py]
+    timeout_seconds: 60
+    side_effect: production-readonly
+required:
+  local: [backend, frontend, lint, build]
+  deploy-preflight: [backend, frontend, lint, build, deploy_contracts]
+  post-deploy-readonly: [e2e_prod_smoke]

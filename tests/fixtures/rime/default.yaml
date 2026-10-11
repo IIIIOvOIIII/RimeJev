@@ -1,0 +1,6 @@
+# Synthetic test configuration. No installed or personal Rime settings are used.
+config_version: '1.0'
+schema_list:
+  - schema: wanxiang
+menu:
+  page_size: 8

@@ -1,0 +1,32 @@
+work/
+.venv/
+.build/
+build/
+dist/
+__pycache__/
+.pytest_cache/
+.coverage*
+htmlcov/
+.env
+.env.*
+!.env.example
+.DS_Store
+
+artifacts/
+
+*.egg-info/
+
+# Local-only input data and credentials. Test dictionaries use *.dict.yaml.
+*.userdb/
+*.userdb.*
+settings.json
+jev-budget.json
+*.sock
+*.key
+*.pem
+*.p12
+*.pfx
+.credentials/
+
+# Also ignore a developer-local symlink to a virtual environment.
+.venv
