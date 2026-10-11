@@ -163,3 +163,11 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Expected result: smaller encrypted files, continued writes under quota pressure, preserved legacy records and private boundaries.
 - Result: achieved in isolated tests. All 24 storage suites and the three actual capture/storage/export pipelines passed. Schema AAD, bounded decompression, legacy compatibility, migration failure preservation, date/mtime ordering, key/path/configuration races and unrelated-file retention are covered. Source typecheck passed. No user data or real key was used by these tests.
 - Next step: final review, exact-source full preflight, local deployment, running-version/settings/UI verification. The live capture switch is off and its existing settings have been backed up.
+
+### 2026-10-12 00:07 SGT — 0.5.1 deployed and verified
+
+- Current work: completed local installation of `186487664e1c5d974eaed86792c7f4a560b0957a` after its exact-source full preflight.
+- Expected result: daily compressed/encrypted storage and oldest-first retention available locally, with user settings preserved.
+- Result: achieved. Backend/native/build/lint and real-Rime checks passed; installed read-only smoke confirms running 0.5.1 and matching binary. Actual settings UI shows the compression/90%→80% permanent-cleanup explanation and counters. Saved configuration matches the immediate pre-install snapshot; capture remains off, with user path/app scope preserved. No private input was used to test deletion.
+- Publication: implementation is on `feat/training-retention`; closure documentation is synchronized there. This task does not create a formal release. Local receipts and backups stay ignored.
+- Next step: normal use. When the user explicitly enables capture, new writes use compression, older eligible files may be compacted, and capacity pressure retires oldest segments automatically. No required implementation/deployment work remains.

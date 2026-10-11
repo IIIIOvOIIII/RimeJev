@@ -96,6 +96,8 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 
 ### 验证与范围
 
+0.5.1 已通过完整部署前检查与本机安装检查。合成文件测试覆盖按天压缩、旧格式迁移、90%/80% 清理、最旧优先、异常中断和导出一致性；实际设置窗口确认新规则可见、采集关闭且原设置保留。容量测试未使用用户真实数据。
+
 0.5.0 已通过完整构建与安装检查，覆盖默认关闭、应用范围、原生候选选择、加密存储、离线导出及现有输入行为。专用合成验收应用实测了文件夹和应用选择、加密写入、预览、人工选词标签导出及移到废纸篓；结束后采集关闭，临时测试数据已清理。Tev 指令格式导出使用合成分词器验证，未在现场运行模型训练。源码发布保留已验收的运行代码；详细证据与边界见 [VALIDATION.md](docs/VALIDATION.md)。
 
 0.4.2 已通过 423 项后端测试、15 个实际适配器流程场景、语境解析测试及 437 组真实 Rime 探针，并完成本机安装与运行版本检查。现有设置全部保留；实际输入观察及应用兼容边界见 [VALIDATION.md](docs/VALIDATION.md)。
@@ -171,6 +173,8 @@ Cloud mode sends a bounded preceding context, the current pinyin, and candidates
 An actual Shift-triggered language change shows a one-second Chinese/English indicator near the caret. It is separate from the candidate panel and never takes focus; unchanged Shift combinations do not show it.
 
 ### Validation and limitations
+
+0.5.1 passed the full deployment preflight and installed smoke. Synthetic-file tests cover daily compression, legacy migration, 90%/80% retention, oldest-first ordering, interruption and export equivalence. The installed settings window shows the policy with capture off and existing settings preserved. Real user data was not used for quota tests.
 
 0.5.0 passed the full build and installation checks covering default-off behavior, application scope, native selection, encrypted storage, offline export and existing input behavior. A dedicated synthetic validation app exercised folder/app selection, encrypted writes, preview, human-label export and recoverable deletion. Capture was left off and temporary test data was cleaned up. Tev instruction exports were validated with synthetic tokenizers; no live model training was performed. This source release retains the verified runtime code. See [VALIDATION.md](docs/VALIDATION.md) for evidence and limits.
 
