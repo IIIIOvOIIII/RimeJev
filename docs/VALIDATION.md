@@ -86,8 +86,10 @@ The release retains the exact runtime code verified and installed at `1b1f713df4
 
 ## 0.4.1 all-application defaults
 
-Final installed code: `2b9ab93fa8349e6c5bb13b3e3266ebeb1f08e04a`. Full deployment preflight and installed read-only smoke passed. The existing Python, coordinator, runtime, Keychain, language-indicator and 437 real-Rime probes remain passing.
+Final installed code: `8138c198ab16225026039b4c56969db9f617bc96`. Full deployment preflight and installed read-only smoke passed. The existing Python, coordinator, runtime, Keychain, language-indicator and 437 real-Rime probes remain passing.
 
 The new settings tests compile the actual Settings implementation with only its storage location redirected. Eight logic groups and six separate loader scenarios cover unseen apps with an empty allowlist, all mode/model/order combinations, explicit-off precedence, complete override snapshots, later global changes, follow-default cleanup, invalid settings, legacy loading, persistence, unchanged timeouts, secure input, empty app identity and the input method's own settings. Active inheritance uses isolated profiles and makes no model or credential calls.
 
 Installed UI checks confirmed that settings open at “所有应用默认设置” with “关闭增强”, switching to current-app scope preserves the existing Jev override, and the follow-default control is visible. Returning to default scope still shows off. The user requested the live global default to remain off; it was never enabled during UI verification. The actual per-app modes, local choices, order, timeout values and credential metadata match their pre-install snapshot. No new real-key or model-quality claims are made.
+
+Global-scope saves write Settings directly and remain available if the originating input client has closed. The final build, full preflight, installed smoke, preserved-setting comparison and visible global-off state were reverified after this lifecycle fix.

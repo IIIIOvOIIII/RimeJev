@@ -71,7 +71,7 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 
 ### 2026-10-11 — 0.4.1 installed and verified
 
-- Current work: completed global defaults and per-application overrides, installed source `2b9ab93fa8349e6c5bb13b3e3266ebeb1f08e04a`.
+- Current work: completed global defaults and per-application overrides, installed source `8138c198ab16225026039b4c56969db9f617bc96`.
 - Result: full preflight and installed smoke passed. Isolated production-Settings tests passed all eight logic groups and six loader scenarios. Actual UI shows global-off, current-app override and follow-default controls. Existing app modes/local choices/order/timeouts/credential metadata were compared with the pre-install snapshot and are unchanged.
 - User preference honored: no global model was enabled during installation or UI verification. The settings window was returned to global defaults, still off. Live model-quality testing is unnecessary for this settings-only feature.
 - Next: the user can select one global default whenever desired; unconfigured apps inherit automatically. The feature branch and bilingual instructions are synchronized; no required work remains for this request.
