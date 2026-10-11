@@ -117,3 +117,23 @@ The first installation's file checks passed, but typing diagnostics exposed an o
 Live automation observed current-line reads and model requests in TextEdit with approximately 0.45–1.12ms read duration, but its latest-client diagnostics did not correspond to the dedicated validation window. This is evidence of a live read path, not completion of that window's scenario. The user subsequently confirmed a model recommendation in the dedicated 0.4.2 host after choosing the existing-text fixture, selecting RimeJev from the system menu, pausing about ten seconds and manually typing `sj`. This is manual acceptance of existing current-line context after a pause; no exact word or provider was asserted. Newline/middle-insertion/empty-context boundary cases are covered by the isolated parser/adapter tests, not claimed as separately accepted real-model UI scenarios. No model thresholds, user timeouts or candidate contents were altered to force a prediction.
 
 The IMK host API is synchronous. Reads are bounded and coalesced after debounce; host latency counts against deadlines and a slow read triggers temporary backoff. This cannot interrupt the first slow host call. Unknown caret positions abstain; host-specific text availability still needs per-application verification. No Accessibility/OCR/clipboard-reader fallback was introduced.
+
+## 0.5.0 opt-in encrypted training capture
+
+Installed source: `7cdde9e6ad3cc4375110d241b6bbfc3bec8a131b`. Full exact-source preflight, native signature/build and installed smoke passed. The running bundle is 0.5.0 and its binary matches the preflight receipt. Installation initialized capture to off and an empty selected-app list, without creating the default capture directory; existing enhancement profiles, timeouts and credentials remained unchanged.
+
+| Check | Result |
+| --- | --- |
+| Backend | 498 tests passed, including 75 offline export tests |
+| Native adapter | 17 scenarios passed, including capture-only with no model loading/calls and application-scope enforcement |
+| Collector | Observed human labels, model disagreement, unavailable vs known-empty context, partial rollback/chain validation, opt-outs, secret filtering, cancellation and linked corrections passed |
+| Encrypted storage | 15 suites passed with injected keys: AES-GCM roundtrip/tampering, limits, permissions, nonblocking input/configuration, generation invalidation, quiescent off, missing directories and streaming consumer cancellation |
+| Complete offline pipeline | Actual collector → encrypted files → background decryption → actual exporter passed three synthetic cases: human label retained, corrected sample excluded, explicit corrected inclusion |
+| Existing input behavior | All native settings/runtime/Keychain/Shift suites and 437 real-Rime probes passed |
+| Live installed UI | Off by default, folder selection, a single dedicated app allowlist, enable/save, local encrypted write, preview, export and recoverable deletion verified |
+
+The live test used only `dev.lynx.rimejev.training-validation` and a disposable local directory. With prefilled “汽车”, typing `youxiang` and choosing digit 2 committed “油箱”. One encrypted record was written; known fixture plaintext was absent from the file and permissions were 0600. Installed-app decryption using the real capture Keychain item confirmed the app, context, pinyin, committed target, digit method, covered candidate and two model results. UI export produced one correctly labelled human example and excluded model outputs from training input. Preview/export left capture off. The test capture was moved to Trash through the UI, and its temporary plaintext export was removed. The capture key remains available for recovery; no API credential was replaced or disclosed.
+
+Closeout confirmed capture off and the temporary test app removed. New path/application-scope choices appeared in the live settings during closeout and were preserved rather than overwritten; no capture in ordinary apps was observed. The original enhancement settings still match the pre-install snapshot. Raw captures/exports remain excluded from Git, and the full source history credential scan found no leaks.
+
+Instruction export was checked with synthetic local tokenizers, including answer/EOS boundaries and length failures. No real model-specific tokenizer was selected in the live UI, so the live export verifies records/sft only. Training and uploads were never started. User selections remain observed preferences, host insertion acknowledgement remains unknown where unavailable, and correction coverage is limited to verifiable nearby edits.

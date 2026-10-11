@@ -130,3 +130,11 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Result: collector privacy/scope/commit/rollback tests, 17 actual adapter scenarios, 15 encrypted-storage suites and 75 exporter tests passed. Actual collector→AES-GCM file→off-main decryption→Python export passed three synthetic pipelines, including human/model disagreement and correction exclusion. Native UI validation and initial build/signature passed. No real input or real Keychain key was used by automated tests.
 - Review fixes: unavailable context stays null; undone partial choices are pruned and commit chains validated; model opt-out removes source annotations; custom missing directories never recreate; disable acknowledgement follows worker quiescence; training instruction files now match the official prompt/completion contract with local tokenizer/token-boundary checks.
 - Next: exact-source full preflight, backup/install, confirm default-off UI and narrowly scoped synthetic live acceptance, then restore default-off configuration.
+
+### 2026-10-11 — 0.5.0 installed and accepted locally
+
+- Current work: completed deployment of tested source `7cdde9e6ad3cc4375110d241b6bbfc3bec8a131b` and installed UI acceptance.
+- Expected result: independent off-by-default capture, selectable directory/apps, accurate observed choice records, local encrypted storage and offline export.
+- Result: achieved. Full gate and final installed smoke passed. Live dedicated-app typing generated one encrypted sample with correct context/pinyin/digit selection and two model results; installed-app Keychain decryption, one-example export, model/label separation, automatic stop and recoverable deletion passed. Temporary plaintext was removed.
+- Final state: capture is off and the test app is removed. Latest path/scope choices observed during closeout were preserved; all existing enhancement settings remain unchanged. No normal-app capture was observed, no dataset uploaded and no model trained.
+- Next: user may choose their desired capture scope/path and explicitly enable collection. No required implementation/deployment work remains. Feature branch publication only; main/release remain unchanged.
