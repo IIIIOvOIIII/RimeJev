@@ -25,3 +25,16 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 ### Release readiness
 
 341 Python tests, 91% native coordinator line coverage, backend 89.31%, native build/signature and installed smoke passed. Actual settings checks proved model switching, independent custom timeout values, invalid-value rejection and per-model reset. Existing per-app configuration was preserved during migration; temporary settings used by UI verification were restored; application choices changed separately during verification were retained. Release documentation is bilingual, with `LLM_INSTALL.md` dedicated to installation assistants. Public sources contain neither local settings nor credentials; the earlier `v0.2.4` release remains unchanged.
+
+## 2026-10-11 — 0.4.0 dual-model settings in progress
+
+- Current work: implement four enhancement modes, one selectable local backend alongside Jev, user-ordered priority, Keychain-backed masked API key entry, and Shift Chinese/English indication.
+- Expected: preserve native first; annotate a model match there; otherwise place unique recommendations in slots two/three by configured priority. Matching duplicate recommendations merge source labels. Missing/late results retain native words. Independent model deadlines and selection locks remain.
+- Scope: local development and installation authorized. Use deterministic dual-provider/Rime tests, existing targeted checks, full preflight and installed smoke; at most two fixed synthetic live decisions per provider if needed. Do not tune thresholds to force a demonstration. Max five recovery attempts per failure class. Secrets never enter source, settings, logs or argv.
+- Result: implementation started from clean 0.3.0 main. Next: integrate and review, then build/deploy and actual settings/Shift checks.
+
+### Integration milestone
+
+- Result: dual candidate planning and 437 real-Rime probes pass; independent-deadline coordinator tests and concurrent runtime tests pass. Native settings, model migration and separate Shift HUD compile. Python suite passes 396 tests. Keychain/storage and bounded stdin tests use synthetic credentials only.
+- Review corrections: credential revisions survive rapid local-model changes; pending Keychain authorization runs on a separate queue; local memory pressure invalidates local work without discarding cloud results. Isolated native lifecycle tests exercise all three cases.
+- Next: final credential scan and deploy-preflight, local install, actual settings/HUD interaction. Preserve user timeouts and per-app modes; no automatic secret migration or new cloud enablement.

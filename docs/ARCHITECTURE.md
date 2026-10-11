@@ -16,3 +16,13 @@ Local failure never changes the provider to cloud. All modes are off by default;
 0.3.0 adds `tev-0.8b` and `tev-4b` as distinct local provider identities. Both display `✦ Tev`; the existing `local` provider remains the compatible identifier for TT and displays `✦ TT`. Source labels no longer depend on whether a recommendation matched the first word. The first-preserved/second-slot placement contract is unchanged.
 
 Tev's managed local service is isolated from an existing system Ollama service. Its downloads are explicit, runtime/model identities pinned, endpoint loopback-only, proxy/redirect forwarding disabled, and cloud features off. Model switches invalidate old decisions; missing resources, loading, and timeouts retain native candidates. Tev reserves one of its 24 trained options for `none`.
+
+## 0.4.0 dual-mode contract
+
+Each app now selects off/cloud/local/dual separately from its local backend and two-row provider priority. Legacy provider IDs resolve to local-only profiles. The runtime manager keeps a dictionary of selected processes, permits Jev plus exactly one local model, invalidates callbacks on profile changes, and releases old local resources before loading a replacement. Changing a local model can retain the cloud process.
+
+Each provider has its own coordinator/deadline and validates against the same original candidate snapshot. Valid responses are merged incrementally with JevCandidatePlan; source priority is independent of arrival time. All coordinators are invalidated on input/context changes and frozen on selection. Dual-mode partial results are not reused from the single-model cache.
+
+The v2 Lua payload binds epoch, raw input, complete candidate-window signature, at most two distinct keys, and at most one cloud/local source each. Native first is always emitted first, requested distinct words follow, then remaining original objects in relative order. A first-word match gets its source badge; duplicate recommendations merge sources. The applied marker is the whole v2 payload. No generated word or placeholder is inserted.
+
+Keychain direct keys are user-entered and masked, not settings fields. The Jev-only runtime credential flag reads a bounded private pipe; legacy Vault mode stays separate. Shift feedback compares actual Rime ascii_mode before/after modifier processing and uses its own nonactivating panel, leaving candidate selection untouched.

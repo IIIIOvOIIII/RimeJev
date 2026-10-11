@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 mkdir -p work artifacts/coverage
-swiftc -parse-as-library -profile-generate -profile-coverage-mapping native/JevCore.swift native/tests/JevCoreTests.swift -o work/JevCoreCoverage
+swiftc -parse-as-library -profile-generate -profile-coverage-mapping native/JevCore.swift native/JevCandidatePlan.swift native/tests/JevCoreTests.swift -o work/JevCoreCoverage
 LLVM_PROFILE_FILE=work/JevCore.profraw work/JevCoreCoverage
 xcrun llvm-profdata merge -sparse work/JevCore.profraw -o work/JevCore.profdata
 xcrun llvm-cov export work/JevCoreCoverage -instr-profile work/JevCore.profdata native/JevCore.swift -summary-only > work/swift-coverage.json
@@ -19,3 +19,8 @@ swiftc -parse-as-library native/JevBadge.swift native/tests/JevBadgeTests.swift 
 work/JevBadgeTests
 
 .venv/bin/python scripts/test_runtime_lifecycle.py
+
+for component in CandidatePlan Keychain LanguageIndicator; do
+  swiftc -parse-as-library native/JevCore.swift "native/Jev${component}.swift" "native/tests/Jev${component}Tests.swift" -framework AppKit -framework Security -o "work/Jev${component}Tests"
+  "work/Jev${component}Tests"
+done

@@ -865,9 +865,43 @@ private func testStaleTevVariantResponses(providerTimeouts: [String: Int64] = [:
     expectEqual(decisions.values[0].requestID, newSmall.id, "decision belongs to current variant generation")
 }
 
+private func testParallelModelDeadlinesAndPriority() {
+    for priority in [["jev","tev-4b"],["tev-4b","jev"]] {
+        for lockBeforeSecond in [false,true] {
+            let clock=TestClock()
+            let shared=TestScheduler(clock:clock)
+            var choices:[String:JevCandidate]=[:]
+            var coordinators:[String:JevDecisionCoordinator]=[:]
+            var transports:[String:TestTransport]=[:]
+            for provider in priority {
+                let transport=TestTransport();transports[provider]=transport
+                let coordinator=JevDecisionCoordinator(configuration:JevCoordinatorConfiguration(providerTimeouts:["jev":600,"tev-4b":2000]),clock:clock,scheduler:shared,transport:transport.closure,onDecision:{ decision in
+                    if decision.action == .promote {choices[decision.provider]=decision.candidate}
+                })
+                coordinators[provider]=coordinator
+                coordinator.onNewSnapshot(snapshot(identity:"parallel",provider:provider))
+            }
+            shared.advance(to:260)
+            expectEqual(transports["jev"]!.requests[0].maxAgeMilliseconds,340,"independent cloud budget")
+            expectEqual(transports["tev-4b"]!.requests[0].maxAgeMilliseconds,1740,"independent local budget")
+            shared.advance(to:400)
+            transports["jev"]!.respond(acceptedResponse(request:transports["jev"]!.requests[0]))
+            shared.runDue()
+            if lockBeforeSecond {coordinators.values.forEach {$0.lockSorting()}}
+            shared.advance(to:1200)
+            transports["tev-4b"]!.respond(acceptedResponse(request:transports["tev-4b"]!.requests[0],choiceID:"c",probabilities:["a":0.05,"b":0.1,"c":0.8,"none":0.05]))
+            shared.runDue()
+            let entries=JevCandidatePlan.entries(baseline:candidates,choices:choices,priority:priority)
+            expectEqual(entries.map(\.candidate.id),lockBeforeSecond ? ["b"] : priority.map {$0=="jev" ? "b" : "c"},"local deadline remains independent and user priority wins over response order")
+            coordinators.values.forEach {$0.invalidate()}
+        }
+    }
+}
+
 @main
 private enum JevCoreTests {
     static func main() {
+        testParallelModelDeadlinesAndPriority()
         testRequestWireAndDebounce()
         testFirstCandidateStillProducesDecision()
         testAbbreviationAndSamplingClock()

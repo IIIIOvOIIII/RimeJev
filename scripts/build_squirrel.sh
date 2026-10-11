@@ -14,7 +14,7 @@ BUILD_ROOT=${SQUIRREL_BUILD_ROOT:-"$REPO_ROOT/work/build-probe"}
 APP_PATH=${SQUIRREL_APP_PATH:-"$BUILD_ROOT/Squirrel.app"}
 INSTALLED_APP=${SQUIRREL_INSTALLED_APP:-"/Library/Input Methods/Squirrel.app"}
 MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-13.0}
-PRODUCT_VERSION=${SQUIRREL_VERSION:-0.3.0}
+PRODUCT_VERSION=${SQUIRREL_VERSION:-0.4.0}
 PRODUCT_BUNDLE_IDENTIFIER=${SQUIRREL_BUNDLE_IDENTIFIER:-im.lynx.inputmethod.RimeJev}
 
 resolve_repo_path() {
@@ -285,7 +285,7 @@ if [[ ${EXTRA_SOURCES+x} ]]; then
   fi
 else
   EXTRA_SOURCE_VALUES=()
-  for candidate in "$REPO_ROOT/native/JevCore.swift" "$REPO_ROOT/native/JevIntegration.swift" "$REPO_ROOT/native/JevCommittedContext.swift" "$REPO_ROOT/native/JevBadge.swift"; do
+  for candidate in "$REPO_ROOT/native/JevCore.swift" "$REPO_ROOT/native/JevIntegration.swift" "$REPO_ROOT/native/JevCommittedContext.swift" "$REPO_ROOT/native/JevBadge.swift" "$REPO_ROOT/native/JevCandidatePlan.swift" "$REPO_ROOT/native/JevKeychain.swift" "$REPO_ROOT/native/JevLanguageIndicator.swift"; do
     if [[ -f "$candidate" ]]; then
       EXTRA_SOURCE_VALUES+=("$candidate")
     fi

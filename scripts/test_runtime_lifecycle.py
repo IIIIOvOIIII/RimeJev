@@ -20,11 +20,15 @@ with tempfile.TemporaryDirectory(prefix='native-lifecycle-', dir=root / 'work') 
     (fixture / 'sockets').mkdir()
     (package / 'runtime.py').write_text('''import argparse,json,os,socket,time
 from pathlib import Path
-p=argparse.ArgumentParser();p.add_argument('--socket');p.add_argument('--provider');p.add_argument('--model-path');p.add_argument('--vault-ref');a=p.parse_args()
+p=argparse.ArgumentParser();p.add_argument('--socket');p.add_argument('--provider');p.add_argument('--model-path');p.add_argument('--vault-ref');p.add_argument('--credential-stdin',action='store_true');a=p.parse_args()
 log=Path.cwd()/'events.log'
 with (Path.cwd()/'pids.log').open('a') as f:f.write(str(os.getpid())+'\\n')
 def record(value):
  with log.open('a') as f:f.write(value+'\\n')
+if a.credential_stdin:
+ import sys
+ assert json.load(sys.stdin)['api_key']=='synthetic-credential'
+ record('credential '+a.provider)
 s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM);s.bind(a.socket);s.listen()
 record('root '+str(Path.cwd())+' '+os.environ['RIME_JEV_PROJECT_ROOT']);record('start '+a.provider)
 while True:
@@ -47,11 +51,11 @@ record('released '+a.provider);Path(a.socket).unlink()
     extracted = fixture / 'RuntimeUnderTest.swift'
     extracted.write_text(source)
     executable = fixture / 'RuntimeLifecycleTests'
-    subprocess.run(['swiftc', '-parse-as-library', str(root / 'native/JevCore.swift'), str(extracted),
+    subprocess.run(['swiftc', '-parse-as-library', str(root / 'native/JevCore.swift'), str(root / 'native/JevKeychain.swift'), str(extracted),
                     str(root / 'native/tests/JevRuntimeLifecycleTests.swift'), '-framework', 'AppKit',
                     '-framework', 'InputMethodKit', '-framework', 'Carbon', '-o', str(executable)], check=True, timeout=60)
     try:
-        subprocess.run([str(executable), str(fixture)], check=True, timeout=40)
+        subprocess.run([str(executable), str(fixture)], check=True, timeout=65)
     finally:
         pid_file = fixture / 'pids.log'
         for value in pid_file.read_text().splitlines() if pid_file.exists() else []:

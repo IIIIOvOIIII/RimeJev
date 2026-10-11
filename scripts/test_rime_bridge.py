@@ -18,6 +18,34 @@ evidence.mkdir(parents=True, exist_ok=True)
 rows = []
 logs = []
 fixture = None
+probe_binary = None
+
+
+def compile_probe(directory):
+    # Extend only a disposable copy: the shared probe remains the legacy driver.
+    source = (root / 'native/rime_probe.mm').read_text()
+    anchor = '        if (input[@"commit_index"] || input[@"commit_key"]) {'
+    assert source.count(anchor) == 1, 'Native probe commit entry point changed'
+    extension = r'''
+        for (NSDictionary *step in input[@"result_steps"] ?: @[]) {
+          if (step[@"epoch"]) api->set_property(s, "_jev_epoch", [step[@"epoch"] UTF8String]);
+          for (NSNumber *key in step[@"keys"] ?: @[]) api->process_key(s, [key intValue], 0);
+          api->set_property(s, "_jev_result", [step[@"wire"] UTF8String]);
+          NSString *name = step[@"name"];
+          output[[name stringByAppendingString:@"_snapshot_before_iteration"]] = snapshot(api, s);
+          recordResult(api, s, limit, output, name);
+          output[[name stringByAppendingString:@"_snapshot"]] = snapshot(api, s);
+        }
+'''
+    generated = directory / 'rime_bridge_probe.mm'
+    generated.write_text(source.replace(anchor, extension + anchor))
+    binary = directory / 'rime_bridge_probe'
+    subprocess.run([
+        'clang++', '-std=c++17', '-fobjc-arc', '-I', str(root / 'native/include'),
+        str(generated), fw + '/librime.1.dylib', '-Wl,-rpath,' + fw,
+        '-framework', 'Foundation', '-o', str(binary),
+    ], check=True, timeout=30)
+    return binary
 
 
 def source_hashes():
@@ -34,7 +62,7 @@ def probe(case, fixture_override=None):
         user = Path(directory) / 'Rime'
         shutil.copytree(fixture_override or fixture, user)
         proc = subprocess.run(
-            [str(root / 'work/rime_probe'), str(user), str(user / 'shared')],
+            [str(probe_binary), str(user), str(user / 'shared')],
             input=json.dumps(case) + '\n', capture_output=True, text=True, timeout=10,
         )
     logs.append(f"[{case['id']}]\n{proc.stderr}")
@@ -113,12 +141,156 @@ def genuine_types(snapshot):
             for candidate in snapshot['candidates']}
 
 
+def v2_wire(snapshot, indices, groups, count=8):
+    candidates = snapshot['candidates']
+    keys = '\n'.join(candidate['key'] for candidate in candidates[:count])
+    return '|'.join(['v2', snapshot['epoch'], snapshot['input'].encode().hex(),
+                     ','.join(candidates[i]['key'] for i in indices), str(min(count, len(candidates))),
+                     keys.encode().hex(), ','.join('+'.join(group) for group in groups)])
+
+
+def placed_plan(row, indices, wire, name='reordered'):
+    baseline = row['candidates']
+    targets = [row['snapshot']['candidates'][i]['text'] for i in indices]
+    selected = [text for text in targets if text != baseline[0]]
+    assert len(set(targets)) == len(targets), row['id']
+    expected = [baseline[0]] + selected + [text for text in baseline[1:] if text not in selected]
+    assert len(row[name]) == len(baseline) == 128, row['id']
+    assert Counter(row[name]) == Counter(baseline), row['id']
+    assert row[name] == expected, (row['id'], name, row[name][:14], expected[:14])
+    assert row[name + '_applied'] == wire, (row['id'], 'v2 marker must equal the whole wire')
+    refreshed = row[name + '_state']
+    assert refreshed['page'] == refreshed['highlight'] == 0, row['id']
+    assert refreshed['highlighted_text'] == baseline[0], row['id']
+    assert refreshed['page_candidates'] == expected[:len(refreshed['page_candidates'])], row['id']
+    assert refreshed['input'] == row['sampling_after']['input'], row['id']
+    assert refreshed['caret'] == row['sampling_after']['caret'], row['id']
+    # Even after placement, subsequent model callbacks see the original keys and IDs.
+    snapshot = row[name + '_snapshot']
+    assert snapshot == row['snapshot'], (row['id'], 'original baseline snapshot changed')
+    initial = row[name + '_snapshot_before_iteration']['candidates']
+    assert initial == row['snapshot']['candidates'][:len(initial)], row['id']
+    return expected
+
+
+def dual_model_tests(discovery, protected_fixture, submissions):
+    start = len(rows)
+    snapshot = discovery['snapshot']
+    base = {'pinyin': 'sj', 'limit': 128}
+    for local in ['local', 'tev-0.8b', 'tev-4b']:
+        for priority in [['jev', local], [local, 'jev']]:
+            high, low = priority
+            scenarios = [
+                ('both-first', [0], [priority]),
+                ('first-high', [0, 11], [[high], [low]]),
+                ('first-low', [0, 11], [[low], [high]]),
+                ('different', [11, 5] if high == 'jev' else [5, 11], [[high], [low]]),
+                ('same', [11], [priority]),
+            ]
+            for label, indices, groups in scenarios:
+                wire = v2_wire(snapshot, indices, groups, count=24)
+                for action, commit_args, submitted in submissions:
+                    row = probe(dict(base, **commit_args, id=f'v2-{high}-{low}-{label}-{action}',
+                                     result_steps=[{'name': 'reordered', 'wire': wire}]))
+                    expected = placed_plan(row, indices, wire)
+                    committed(row, expected[submitted])
+
+    valid = v2_wire(snapshot, [11, 5], [['jev'], ['local']], count=24)
+    same = v2_wire(snapshot, [11], [['local', 'jev']], count=24)
+    single = v2_wire(snapshot, [11], [['local']], count=24)
+    # A callback from the second model must use the original signed baseline,
+    # even when the first callback already moved its target to slot 2.
+    callbacks = probe(dict(base, id='v2-progressive-callbacks-repeat-clear-reapply', commit_key=ord('3'),
+                          result_steps=[{'name': 'single', 'wire': single},
+                                        {'name': 'reordered', 'wire': valid},
+                                        {'name': 'merged', 'wire': same},
+                                        {'name': 'repeated', 'wire': same},
+                                        {'name': 'restored', 'wire': ''},
+                                        {'name': 'reapplied', 'wire': valid}]))
+    placed_plan(callbacks, [11], single, 'single')
+    placed_plan(callbacks, [11, 5], valid)
+    for name in ['merged', 'repeated']:
+        placed_plan(callbacks, [11], same, name)
+    restored(callbacks)
+    expected = placed_plan(callbacks, [11, 5], valid, 'reapplied')
+    committed(callbacks, expected[2])
+
+    fields = valid.split('|')
+    invalid = {}
+    def bad(label, index, value):
+        parts = fields.copy()
+        parts[index] = value
+        invalid[label] = '|'.join(parts)
+    bad('old-epoch', 1, 'old-probe')
+    bad('wrong-input', 2, 'other'.encode().hex())
+    bad('wrong-signature', 5, '00')
+    bad('reordered-signature', 5, '\n'.join(c['key'] for c in reversed(snapshot['candidates'])).encode().hex())
+    bad('missing-target', 3, snapshot['candidates'][11]['key'] + ',missing')
+    bad('duplicate-targets', 3, ','.join([snapshot['candidates'][11]['key']] * 2))
+    bad('three-targets', 3, ','.join(snapshot['candidates'][i]['key'] for i in [11, 5, 3]))
+    bad('empty-targets', 3, '')
+    bad('trailing-target', 3, fields[3] + ',')
+    for value in ['0', '25', '-1', 'eight']:
+        bad('invalid-count-' + value, 4, value)
+    for label, value in [('unknown', 'jev,other'), ('case', 'Jev,local'), ('disabled', 'off,local'),
+                         ('two-jevs', 'jev,jev'), ('two-locals', 'local,tev-4b'),
+                         ('duplicate-label', 'jev+jev,local'), ('reused-label', 'jev+local,local'),
+                         ('three-providers', 'jev+local,tev-0.8b'), ('empty-group', 'jev,'),
+                         ('missing-group', 'jev'), ('extra-group', 'jev,local,tev-4b'),
+                         ('empty-label', 'jev+,local')]:
+        bad('source-' + label, 6, value)
+    invalid['target-outside-signed-window'] = v2_wire(snapshot, [11], [['jev']], count=8)
+    invalid['no-sources'] = v2_wire(snapshot, [11], [[]], count=24)
+    invalid['merged-two-locals'] = v2_wire(snapshot, [11], [['local', 'tev-4b']], count=24)
+    invalid['unknown-version'] = valid.replace('v2|', 'v3|', 1)
+    invalid['extra-field'] = valid + '|extra'
+    # Every invalid payload arrives after a valid reorder, proving restoration
+    # and numeric commit behavior rather than just an initially empty marker.
+    for label, wire in invalid.items():
+        row = probe(dict(base, id='v2-late-invalid-' + label, commit_key=ord('2'),
+                         result_steps=[{'name': 'reordered', 'wire': valid}, {'name': 'restored', 'wire': wire}]))
+        placed_plan(row, [11, 5], valid)
+        restored(row)
+        committed(row, row['candidates'][1])
+
+    epoch = probe(dict(base, id='v2-epoch-changed-before-result', commit_key=ord('3'),
+                       result_steps=[{'name': 'reordered', 'wire': valid},
+                                     {'name': 'restored', 'epoch': 'next', 'wire': valid}]))
+    placed_plan(epoch, [11, 5], valid)
+    restored(epoch)
+    committed(epoch, epoch['candidates'][2])
+    changed = probe(dict(base, id='v2-input-changed-before-late-result', commit_key=ord('1'),
+                         result_steps=[{'name': 'reordered', 'wire': valid},
+                                       {'name': 'changed', 'keys': [0xff08, 0xff08] + list(map(ord, 'youxiang')), 'wire': ''},
+                                       {'name': 'late', 'wire': valid}]))
+    placed_plan(changed, [11, 5], valid)
+    assert changed['late'] == changed['changed']
+    assert not changed['late_applied']
+    assert changed['late_state']['input'] == 'youxiang'
+    committed(changed, changed['changed'][0])
+
+    # Real Rime table candidates remain protected even with a valid v2 signature.
+    table_base = probe({'id': 'v2-protected-discovery', 'pinyin': 'cap', 'limit': 128}, protected_fixture)
+    table_wire = v2_wire(table_base['snapshot'], [0], [['jev', 'local']])
+    table = probe({'id': 'v2-protected-candidates', 'pinyin': 'cap', 'limit': 128, 'commit_key': ord('1'),
+                   'result_steps': [{'name': 'reordered', 'wire': table_wire}]}, protected_fixture)
+    restored(table, 'reordered')
+    committed(table, table['candidates'][0])
+
+    # Partial composition retains its confirmed prefix with two recommendations.
+    partial_case = {'pinyin': 'qicheyouxiang', 'caret': 5, 'confirm_prefix': True, 'limit': 128}
+    partial_base = probe(dict(partial_case, id='v2-partial-discovery'))
+    partial_wire = v2_wire(partial_base['snapshot'], [2, 4], [['jev'], ['tev-4b']])
+    for key in ['1', '2', '3']:
+        row = probe(dict(partial_case, id='v2-partial-key-' + key, commit_key=ord(key),
+                         result_steps=[{'name': 'reordered', 'wire': partial_wire}]))
+        expected = placed_plan(row, [2, 4], partial_wire)
+        committed(row, '汽车' + expected[int(key) - 1])
+    print('v2: dual placement, whole-wire marker, dedup, callback baseline, late invalidation and numeric commits PASS', flush=True)
+    return len(rows) - start, len(invalid)
+
+
 def main(protected_fixture):
-    subprocess.run([
-        'clang++', '-std=c++17', '-fobjc-arc', '-I', str(root / 'native/include'),
-        str(root / 'native/rime_probe.mm'), fw + '/librime.1.dylib', '-Wl,-rpath,' + fw,
-        '-framework', 'Foundation', '-o', str(root / 'work/rime_probe'),
-    ], check=True, timeout=30)
     sj = {'pinyin': 'sj', 'limit': 128, 'sample_candidates': True}
     discovery = probe(dict(sj, id='sj-discovery'))
     sampling_unchanged(discovery)
@@ -168,6 +340,7 @@ def main(protected_fixture):
         ('select-second', {'commit_index': 1}, 1),
         ('select-third', {'commit_index': 2}, 2),
         ('space', {'commit_key': ord(' ')}, 0),
+        ('key-1', {'commit_key': ord('1')}, 0),
         ('key-2', {'commit_key': ord('2')}, 1),
         ('key-3', {'commit_key': ord('3')}, 2),
     ]
@@ -209,7 +382,7 @@ def main(protected_fixture):
         assert capped['score_limit'] == capped['promotion_count'] == 24
         placed_second(capped, index)
 
-        for action, commit_args, submitted_index in submissions[3:5]:
+        for action, commit_args, submitted_index in [submissions[3], submissions[5]]:
             noresult = probe(dict(youxiang, **commit_args, id=f'{provider}-noresult-{action}', provider=provider))
             assert 'reordered' not in noresult
             committed(noresult, noresult['candidates'][submitted_index])
@@ -255,10 +428,14 @@ def main(protected_fixture):
             partial_raw_count = partial['sample_raw_count']
         print(f'{provider}: placement, submissions, restoration, reapply, partial composition PASS', flush=True)
 
+    dual_cases, invalid_cases = dual_model_tests(discovery, protected_fixture, submissions)
     return {
         'passed': True, 'status': 'passed', 'probe_cases': len(rows), 'candidate_count': 128,
         'recommendation_source': 'controlled property injection; no model, cloud, or UI calls',
-        'providers': ['local', 'jev', 'tev-0.8b', 'tev-4b'], 'placement': 'original first preserved; other target moves to second',
+        'providers': ['local', 'jev', 'tev-0.8b', 'tev-4b'],
+        'placement': 'original first preserved; unique requested targets occupy slots 2/3 in priority order',
+        'v2_probe_cases': dual_cases, 'v2_late_invalid_payloads': invalid_cases,
+        'v2_whole_wire_marker': True, 'v2_original_callback_baseline': True, 'legacy_six_field_preserved': True,
         'target_ranks': [1, 2, 3, index + 1], 'submission_methods': [action for action, _, _ in submissions],
         'noresult_unchanged': True, 'stale_unchanged': True, 'nonexistent_target_rejected': True,
         'disable_restores': True, 'stale_after_valid_restores': True, 'repeat_and_reapply_stable': True,
@@ -281,6 +458,7 @@ if __name__ == '__main__':
     (evidence / 'bridge-tests.json').write_text(json.dumps(report, indent=2))
     try:
         with tempfile.TemporaryDirectory(prefix='bridge-fixture-', dir=root / 'work') as directory:
+            probe_binary = compile_probe(Path(directory))
             fixture = Path(directory) / 'Rime'
             build = prepare_fixture(fixture)
             logs.append('[synthetic-fixture-build]\n' + build['stdout'] + build['stderr'])
@@ -302,6 +480,6 @@ if __name__ == '__main__':
         (evidence / 'bridge-tests.log').write_text('\n'.join(logs))
         (evidence / 'bridge-probe-rows.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2))
         (evidence / 'bridge-tests.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
-    print(f"Real Rime bridge PASS: {len(rows)} isolated probes; all providers place existing targets second; "
+    print(f"Real Rime bridge PASS: {len(rows)} isolated probes; legacy and dual-model v2 placement; "
           'direct/key commits, 128-candidate order/count, fallback, reapply, partial composition and sampling 8/24/64. '
           'Recommendations were injected; no model or UI acceptance is claimed.')

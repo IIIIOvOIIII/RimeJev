@@ -8,15 +8,18 @@ import os
 import signal
 import socket
 import stat
+import sys
 import threading
 import time
 from pathlib import Path
 from typing import Any
 
+from .credentials import read_credential_stdin
 from .providers import (
     JEV_MODEL_ID,
     LOCAL_MODEL_ID,
     MAX_OPTIONS,
+    CredentialUnavailable,
     DecisionRequest,
     JevProvider,
     LocalProvider,
@@ -348,11 +351,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--provider", required=True, choices=("local", "jev", "tev-0.8b", "tev-4b"))
     parser.add_argument("--model-path", dest="model_path")
     parser.add_argument("--vault-ref", dest="vault_ref")
+    parser.add_argument(
+        "--credential-stdin", action="store_true",
+        help="Read Jev API key JSON from a one-shot stdin pipe",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
+    if args.credential_stdin and args.provider != "jev":
+        _build_parser().error("--credential-stdin is only supported for --provider jev")
     if args.provider == "local":
         if not args.model_path:
             _build_parser().error("--model-path is required for --provider local")
@@ -362,9 +371,19 @@ def main(argv: list[str] | None = None) -> int:
 
         provider = TevProvider(args.provider)
     else:
-        if not args.vault_ref:
-            _build_parser().error("--vault-ref is required for --provider jev")
-        provider = JevProvider(args.vault_ref)
+        if args.credential_stdin:
+            try:
+                api_key = read_credential_stdin(getattr(sys.stdin, "buffer", None))
+            except CredentialUnavailable:
+                print("credential_unavailable", file=sys.stderr)
+                return 1
+            # Explicit stdin mode ignores legacy Vault metadata, with no fallback.
+            # The provider requires a source identifier; capture only the key in its reader.
+            provider = JevProvider("credential-stdin", secret_reader=lambda _ref: api_key)
+        elif args.vault_ref:
+            provider = JevProvider(args.vault_ref)
+        else:
+            _build_parser().error("--vault-ref or --credential-stdin is required for --provider jev")
 
     server = RuntimeServer(args.socket_path, provider)
     previous_handlers: dict[int, Any] = {}

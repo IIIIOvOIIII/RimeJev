@@ -71,6 +71,7 @@ final class SquirrelInputController: IMKInputController {
         handled = true
         break
       }
+      let asciiBefore = rimeAPI.get_option(session, "ascii_mode")
       // print("[DEBUG] FLAGSCHANGED client: \(sender ?? "nil"), modifiers: \(modifiers)")
       var rimeModifiers: UInt32 = SquirrelKeycode.osxModifiersToRime(modifiers: modifiers)
       // For flags-changed event, keyCode is available since macOS 10.15
@@ -99,8 +100,18 @@ final class SquirrelInputController: IMKInputController {
         _ = processKey(keycode, modifiers: modifier)
       }
 
+      let asciiAfter = rimeAPI.get_option(session, "ascii_mode")
+      if asciiBefore != asciiAfter {
+        jev.invalidate(clearContext: true)
+      }
       lastModifiers = modifiers
       rimeUpdate()
+      if let label = JevLanguageIndicatorPolicy.label(asciiBefore: asciiBefore, asciiAfter: asciiAfter,
+                                                       changedModifiers: changes) {
+        let candidatePanel = NSApp.squirrelAppDelegate.panel
+        let caretRect = candidatePanel?.inputController === self ? candidatePanel?.position : nil
+        DispatchQueue.main.async { JevLanguageIndicator.shared.show(label: label, caretRect: caretRect) }
+      }
 
     case .keyDown:
       // ignore Command+X hotkeys.
@@ -264,15 +275,12 @@ final class SquirrelInputController: IMKInputController {
     update.target = self
 
     let menu = NSMenu()
-    for (title, action, mode) in [("语境选词：关闭", #selector(jevOff), "off"),
-                                   ("语境选词：TT 本地", #selector(jevLocal), "local"),
-                                   ("语境选词：Tev 0.8B 本地", #selector(jevTevSmall), "tev-0.8b"),
-                                   ("语境选词：Tev 4B 本地", #selector(jevTevLarge), "tev-4b"),
-                                   ("语境选词：Jev 云端", #selector(jevCloud), "jev")] {
-      let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
-      item.target = self
-      item.state = jev.provider == mode ? .on : .off
-      menu.addItem(item)
+    for (title, action, mode) in [("语境选词：关闭增强", #selector(jevOff), "off"),
+                                   ("语境选词：云端 Jev", #selector(jevCloud), "jev"),
+                                   ("语境选词：本地模型", #selector(jevLocal), "local"),
+                                   ("语境选词：云端＋本地", #selector(jevDual), "dual")] {
+      let item=NSMenuItem(title:title,action:action,keyEquivalent:"")
+      item.target=self;item.state=jev.enhancementMode==mode ? .on : .off;menu.addItem(item)
     }
     menu.addItem(NSMenuItem(title: "所选增强仅在已启用的应用生效", action: nil, keyEquivalent: ""))
     let jevSettings = NSMenuItem(title: "语境选词设置…", action: #selector(showJevSettings), keyEquivalent: "")
@@ -292,8 +300,7 @@ final class SquirrelInputController: IMKInputController {
   @objc func showJevSettings() { JevPreferences.show(for: self) }
   @objc func jevOff() { jev.chooseMode("off") }
   @objc func jevLocal() { jev.chooseMode("local") }
-  @objc func jevTevSmall() { jev.chooseMode("tev-0.8b") }
-  @objc func jevTevLarge() { jev.chooseMode("tev-4b") }
+  @objc func jevDual() { jev.chooseMode("dual") }
   @objc func jevCloud() { jev.chooseMode("jev") }
 
   @objc func deploy() {
