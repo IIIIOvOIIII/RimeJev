@@ -30,7 +30,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 ### 安装
 
-这是 **0.4.1 源码开发版**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
+这是 **0.4.1 源码版本**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
 
 请将 [LLM_INSTALL.md](LLM_INSTALL.md) 交给协助安装的 LLM。它包含环境检查、固定版本依赖、测试、备份、安装、系统授权、手动验收及回退步骤。完整 Xcode 不是前提。不要跳过检查直接运行安装器。
 
@@ -39,7 +39,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout feat/global-default-settings
+git checkout v0.4.1
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 bash scripts/run_quality_gate.sh --gate local
@@ -68,7 +68,7 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 
 公开仓库**不包含 API Key、服务令牌、个人词库、输入记录、模型权重或本机配置**。在设置中的“Jev API 密钥”隐藏输入框填写自己的密钥并保存。密钥存入 macOS 钥匙串，保存后输入框清空，只显示“已保存”，不会回显；不会写入设置文件或命令行。已有 Vault 兼容凭据配置仍可继续使用；保存新密钥后改用钥匙串，读取失败时不会偷偷切回其他凭据来源。具体说明见 [安装指引](LLM_INSTALL.md#optional-jev-cloud-configuration)。本地模式无需 Jev 凭据。
 
-云端模式会发送当前有限连续前文、拼音和候选给 TypeSafe；请仅在用户明确选择的应用启用。本地模式不会隐式切换到云端。不要把密钥写进源码、README、设置文件或命令行参数，也不要把本地 `work/` 上传到仓库。
+云端模式会发送当前有限连续前文、拼音和候选给 TypeSafe；请仅按用户的明确选择，为特定应用或所有未单独配置的应用启用。本地模式不会隐式切换到云端。不要把密钥写进源码、README、设置文件或命令行参数，也不要把本地 `work/` 上传到仓库。
 
 ### 中英文提示
 
@@ -120,7 +120,7 @@ Give [LLM_INSTALL.md](LLM_INSTALL.md) to the LLM assisting with installation. Fo
 
 No real credentials or personal input data are distributed. Enter the Jev API key in the secure settings field. It is stored in macOS Keychain, never redisplayed, and sent to the child runtime through a private one-shot pipe rather than arguments, environment, or settings. Existing Vault-compatible metadata remains supported; saving a direct key selects Keychain explicitly, with no fallback on credential failure. There is **no shared or preconfigured cloud account**. See the exact [credential contract](LLM_INSTALL.md#optional-jev-cloud-configuration). A local-only installation does not need cloud credentials.
 
-Cloud mode sends a bounded preceding context, the current pinyin, and candidates to TypeSafe. Enable it only for applications the user chooses. Local mode never silently falls back to cloud. Keep keys out of source files, settings, documentation, process arguments, and Git history. Runtime directories, dictionaries, weights, logs, and local settings stay outside version control.
+Cloud mode sends a bounded preceding context, the current pinyin, and candidates to TypeSafe. Enable it only through the user’s explicit choice, either for specific apps or as the default for unconfigured apps. Local mode never silently falls back to cloud. Keep keys out of source files, settings, documentation, process arguments, and Git history. Runtime directories, dictionaries, weights, logs, and local settings stay outside version control.
 
 ### Language feedback
 

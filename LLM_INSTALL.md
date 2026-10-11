@@ -30,8 +30,8 @@ If these are missing, stop the dependent step and explain what is missing. Use o
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout feat/global-default-settings
-git rev-parse HEAD  # Record and retain the exact reviewed revision used for installation.
+git checkout v0.4.1
+git rev-parse HEAD  # Record and retain the exact release revision used for installation.
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 ```

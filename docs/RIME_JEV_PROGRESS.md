@@ -75,3 +75,11 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Result: full preflight and installed smoke passed. Isolated production-Settings tests passed all eight logic groups and six loader scenarios. Actual UI shows global-off, current-app override and follow-default controls. Existing app modes/local choices/order/timeouts/credential metadata were compared with the pre-install snapshot and are unchanged.
 - User preference honored: no global model was enabled during installation or UI verification. The settings window was returned to global defaults, still off. Live model-quality testing is unnecessary for this settings-only feature.
 - Next: the user can select one global default whenever desired; unconfigured apps inherit automatically. The feature branch and bilingual instructions are synchronized; no required work remains for this request.
+
+## 2026-10-11 20:48 SGT — GitHub v0.4.1 release package
+
+- Current work: user authorized merging 0.4.1 into main and publishing the GitHub release.
+- Expected result: publish all-application defaults and explicit app overrides with bilingual documentation and a tag-pinned LLM installation guide, excluding secrets and local data.
+- Result: source-package preparation achieved. The tested receipt matches `8138c198ab16225026039b4c56969db9f617bc96`; subsequent changes are Markdown only. README and LLM_INSTALL now select `v0.4.1`. Existing preflight and local installation evidence remain applicable.
+- Publication record: [GitHub v0.4.1](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.4.1). Remote main/tag identity, final credential scan and the published release record are checked during publication; detailed receipts remain outside the repository.
+- Next: complete the final scan, fast-forward main and publish/verify the release. No runtime reinstall or settings changes are required; the live global default remains off.

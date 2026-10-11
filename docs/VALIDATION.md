@@ -93,3 +93,7 @@ The new settings tests compile the actual Settings implementation with only its 
 Installed UI checks confirmed that settings open at “所有应用默认设置” with “关闭增强”, switching to current-app scope preserves the existing Jev override, and the follow-default control is visible. Returning to default scope still shows off. The user requested the live global default to remain off; it was never enabled during UI verification. The actual per-app modes, local choices, order, timeout values and credential metadata match their pre-install snapshot. No new real-key or model-quality claims are made.
 
 Global-scope saves write Settings directly and remain available if the originating input client has closed. The final build, full preflight, installed smoke, preserved-setting comparison and visible global-off state were reverified after this lifecycle fix.
+
+### v0.4.1 publication package
+
+The release keeps the exact runtime code verified and installed at `8138c198ab16225026039b4c56969db9f617bc96`. Subsequent changes only update Markdown documentation, including installation commands pinned to `v0.4.1`. The preflight source receipt was recomputed and matched before publication. Existing test and installation results are reused because the runtime is unchanged; this publication does not require another local installation or enable the global default. GitHub source archives exclude credentials, settings, personal dictionaries, input data, local evidence, binaries and downloaded models.
