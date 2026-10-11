@@ -79,3 +79,7 @@ Final installed code is `1b1f713df440ef4cfb4e2ca97ad5c15c244077a7`. Local deploy
 A regression-test race exposed overlapping teardown between independent fake managers sharing test sockets. Tests now drain each manager before starting the next fixture; the runtime also stops superseded reconciliation between providers. Full preflight passed after correction. These diagnostics were not counted as successful runs.
 
 Existing application modes, custom timeout values and credential source were preserved; temporary UI selections were restored. No new real API key was saved and no live authentication with a newly entered key is claimed. Engine placement, actual settings interaction, user-confirmed Shift behavior and real-model prediction quality are distinct evidence scopes. Original provider thresholds and model identities were not changed to force predictions.
+
+### v0.4.0 publication package
+
+The release retains the exact runtime code verified and installed at `1b1f713df440ef4cfb4e2ca97ad5c15c244077a7`. Changes after that revision only update Markdown documentation, including the pinned `v0.4.0` installation commands. The tested source receipt was independently recomputed before publication. The GitHub release supplies source archives; local app binaries, credentials, settings, input data, logs, backups and downloaded models are excluded. No additional model-quality or live-key authentication claims are introduced by publication.

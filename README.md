@@ -24,7 +24,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 ### 安装
 
-这是 **0.4.0 源码开发版**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
+这是 **0.4.0 源码版本**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
 
 请将 [LLM_INSTALL.md](LLM_INSTALL.md) 交给协助安装的 LLM。它包含环境检查、固定版本依赖、测试、备份、安装、系统授权、手动验收及回退步骤。完整 Xcode 不是前提。不要跳过检查直接运行安装器。
 
@@ -33,7 +33,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout feat/dual-model-settings
+git checkout v0.4.0
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 bash scripts/run_quality_gate.sh --gate local

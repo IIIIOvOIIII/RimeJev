@@ -46,3 +46,11 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Result: achieved at code/install/test scope. Full preflight and installed smoke passed. Actual settings showed four modes, all local models, working Up/Down order, persisted selections, masked input and concurrent backend readiness. User confirmed real Shift language feedback. Key storage/transport used synthetic test data; no real key replacement was needed. See VALIDATION.md for evidence boundaries.
 - Cleanup: unsaved UI test text cleared, temporary model/priority changes restored, existing user timeouts and credential source retained. Original app/data remain recoverable. Code and bilingual installation documentation are on `feat/dual-model-settings`; no new formal release tag is created by this local-deployment task.
 - Next: user can enable cloud + local in any chosen application and save their own API key through the secure field if desired. No required implementation work remains in this request.
+
+## 2026-10-11 — GitHub v0.4.0 release package
+
+- Current work: user requested publication of the locally verified version to GitHub main and the v0.4.0 release.
+- Expected result: publish the tested runtime together with bilingual documentation and a tag-pinned LLM installation guide; exclude all credentials, local settings, personal dictionaries and model weights.
+- Result: source-package preparation achieved. The preflight source receipt was recomputed and matches `1b1f713df440ef4cfb4e2ca97ad5c15c244077a7`; subsequent changes are documentation only. README and LLM_INSTALL now select `v0.4.0`. Runtime behavior is unchanged from the installed version.
+- Publication record: [GitHub v0.4.0](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.4.0). Remote main/tag identity and the published release record are verified at publication; local evidence stays outside the repository.
+- Next: normal use and issue-driven fixes. This publication does not require another local app installation.
