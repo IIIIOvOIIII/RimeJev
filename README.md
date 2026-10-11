@@ -28,9 +28,9 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 输入框不提供文字但光标位置有效时，仅回退到经过验证的连续输入记录，或无前文判断；无法确认光标位置则保留原候选。读取和模型失败都保留原生候选；移动光标、切换输入框或修改前文会使旧请求失效。读取范围、空值与 Unicode 边界均校验；首次遇到慢应用的同步接口仍可能产生延迟，后续短暂暂停文本读取。不同应用兼容性需分别验收。
 
-云端模式发送的有限前文现在也可能包含输入框中已有或粘贴的文字。本地模式仍不发送到云端；增强关闭、安全输入和输入法自身设置不读取这些前文。不记录真实文本，诊断仅包含来源、长度、耗时和状态。
+云端模式发送的有限前文也可能包含输入框中已有或粘贴的文字。本地模式不发送到云端；增强关闭时停止为模型读取前文。若用户独立开启训练采集，则仅按所选应用范围和字段设置采集。安全输入和输入法自身设置不采集前文；诊断仅包含来源、长度、耗时和状态，不包含真实文本。
 
-### 0.4.2 的候选规则
+### 0.5.0 的候选规则
 
 | 模型结果 | 显示与选词 |
 | --- | --- |
@@ -46,7 +46,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 ### 安装
 
-这是 **0.5.0 源码开发版**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
+这是 **[0.5.0 源码版本](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.0)**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
 
 请将 [LLM_INSTALL.md](LLM_INSTALL.md) 交给协助安装的 LLM。它包含环境检查、固定版本依赖、测试、备份、安装、系统授权、手动验收及回退步骤。完整 Xcode 不是前提。不要跳过检查直接运行安装器。
 
@@ -55,7 +55,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout feat/training-capture
+git checkout v0.5.0
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 bash scripts/run_quality_gate.sh --gate local
@@ -84,6 +84,8 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 
 公开仓库**不包含 API Key、服务令牌、个人词库、输入记录、模型权重或本机配置**。在设置中的“Jev API 密钥”隐藏输入框填写自己的密钥并保存。密钥存入 macOS 钥匙串，保存后输入框清空，只显示“已保存”，不会回显；不会写入设置文件或命令行。已有 Vault 兼容凭据配置仍可继续使用；保存新密钥后改用钥匙串，读取失败时不会偷偷切回其他凭据来源。具体说明见 [安装指引](LLM_INSTALL.md#optional-jev-cloud-configuration)。本地模式无需 Jev 凭据。
 
+发布源码不包含采集记录或导出的训练集。仓库中的 `evaluation/cases.jsonl` 和 `tests/fixtures/rime` 是人工构造的评估与测试样例，不来自用户输入或个人词库。加密文件、导出文件、备份和用户自选的数据目录均须留在本机，不应提交或作为 Release 附件上传。
+
 云端模式会发送当前有限连续前文、拼音和候选给 TypeSafe；请仅按用户的明确选择，为特定应用或所有未单独配置的应用启用。本地模式不会隐式切换到云端。不要把密钥写进源码、README、设置文件或命令行参数，也不要把本地 `work/` 上传到仓库。
 
 ### 中英文提示
@@ -91,6 +93,8 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 按 Shift 实际切换输入状态时，光标附近显示约一秒的“中文”或“英文”提示。提示独立于候选栏，不抢焦点；Shift 组合键未切换状态时不提示。
 
 ### 验证与范围
+
+0.5.0 已通过完整构建与安装检查，覆盖默认关闭、应用范围、原生候选选择、加密存储、离线导出及现有输入行为。专用合成验收应用实测了文件夹和应用选择、加密写入、预览、人工选词标签导出及移到废纸篓；结束后采集关闭，临时测试数据已清理。Tev 指令格式导出使用合成分词器验证，未在现场运行模型训练。源码发布保留已验收的运行代码；详细证据与边界见 [VALIDATION.md](docs/VALIDATION.md)。
 
 0.4.2 已通过 423 项后端测试、15 个实际适配器流程场景、语境解析测试及 437 组真实 Rime 探针，并完成本机安装与运行版本检查。现有设置全部保留；实际输入观察及应用兼容边界见 [VALIDATION.md](docs/VALIDATION.md)。
 
@@ -128,9 +132,9 @@ When enhancement is enabled, the IME reads up to the latest 80 complete characte
 
 Unavailable host text with a valid caret anchor falls back only to verified recent commits or an empty context. Unavailable caret positions retain native candidates. Cursor, input-client or preceding-text changes invalidate old requests. Range/Unicode checks reject malformed host responses. Native candidates remain available on read/model failure. A slow synchronous host API can delay its first read; subsequent reads temporarily back off. Application compatibility requires separate live verification.
 
-In cloud mode, the bounded prefix may now include existing or pasted text from the input field. Local mode never sends it to cloud; off, secure input and the IME's settings do not collect it. Diagnostics contain only source, length, duration and status, never actual text.
+In cloud mode, the bounded prefix may include existing or pasted text from the input field. Local mode never sends it to cloud. Enhancement off stops model-context reads; independently enabled training capture follows its selected application scope and field settings. Secure input and the IME's own settings remain excluded. Diagnostics contain only source, length, duration and status, never actual text.
 
-### Candidate behavior in 0.4.2
+### Candidate behavior in 0.5.0
 
 | Model result | Display and selection |
 | --- | --- |
@@ -146,13 +150,15 @@ The recommendation is removed from its previous position, so it is not duplicate
 
 ### Installation
 
-This is a **source release**, not an Apple-notarized installer. Requirements: Apple Silicon, macOS 14+, Command Line Tools, Python 3.12/3.13, uv, and a working Squirrel 1.1.2 installation with Wanxiang. Full Xcode is not required for this build path.
+This is the **[0.5.0 source release](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.0)**; an Apple-notarized installer is not provided. Requirements: Apple Silicon, macOS 14+, Command Line Tools, Python 3.12/3.13, uv, and a working Squirrel 1.1.2 installation with Wanxiang. Full Xcode is not required for this build path. Installation selects the fixed `v0.5.0` tag.
 
 Give [LLM_INSTALL.md](LLM_INSTALL.md) to the LLM assisting with installation. Follow its preflight, backup, build, consent, smoke-test, manual typing, and rollback steps. The commands in the Chinese section are the same commands for English-language installations. Model weights are optional for cloud/off mode and are downloaded separately for local mode. Select TT, Tev 0.8B, or Tev 4B from settings for each application’s local or dual mode. Labels are exactly `✦ TT`, `✦ Tev`, and `✦ Jev`, regardless of recommendation position. Tev uses a pinned local runtime on a dedicated loopback port; it does not replace the system Ollama service or enable cloud inference. Settings expose a separate 0.3–10 second timeout for every model, with restore-default controls. Defaults are 0.6s for Jev/TT/Tev 0.8B and 2s for Tev 4B. Time includes debounce and sampling; continuing input or selection invalidates old results.
 
 ### Credentials and data
 
 No real credentials or personal input data are distributed. Enter the Jev API key in the secure settings field. It is stored in macOS Keychain, never redisplayed, and sent to the child runtime through a private one-shot pipe rather than arguments, environment, or settings. Existing Vault-compatible metadata remains supported; saving a direct key selects Keychain explicitly, with no fallback on credential failure. There is **no shared or preconfigured cloud account**. See the exact [credential contract](LLM_INSTALL.md#optional-jev-cloud-configuration). A local-only installation does not need cloud credentials.
+
+Release sources contain no collected records or exported training datasets. `evaluation/cases.jsonl` and `tests/fixtures/rime` contain hand-authored evaluation/test fixtures, not user input or personal dictionaries. Keep encrypted captures, exports, backups and user-selected data directories local; never commit them or upload them as release assets.
 
 Cloud mode sends a bounded preceding context, the current pinyin, and candidates to TypeSafe. Enable it only through the user’s explicit choice, either for specific apps or as the default for unconfigured apps. Local mode never silently falls back to cloud. Keep keys out of source files, settings, documentation, process arguments, and Git history. Runtime directories, dictionaries, weights, logs, and local settings stay outside version control.
 
@@ -161,6 +167,8 @@ Cloud mode sends a bounded preceding context, the current pinyin, and candidates
 An actual Shift-triggered language change shows a one-second Chinese/English indicator near the caret. It is separate from the candidate panel and never takes focus; unchanged Shift combinations do not show it.
 
 ### Validation and limitations
+
+0.5.0 passed the full build and installation checks covering default-off behavior, application scope, native selection, encrypted storage, offline export and existing input behavior. A dedicated synthetic validation app exercised folder/app selection, encrypted writes, preview, human-label export and recoverable deletion. Capture was left off and temporary test data was cleaned up. Tev instruction exports were validated with synthetic tokenizers; no live model training was performed. This source release retains the verified runtime code. See [VALIDATION.md](docs/VALIDATION.md) for evidence and limits.
 
 0.4.2 passed 423 backend tests, 15 actual-adapter scenarios, context-parser tests and 437 real-Rime probes, plus local installation and running-version checks. All existing settings were preserved. See [VALIDATION.md](docs/VALIDATION.md) for live typing observations and application-specific boundaries.
 

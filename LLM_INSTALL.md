@@ -10,6 +10,7 @@ This is the dedicated installation contract for an LLM helping a user. 中文：
 - Use a dedicated empty test document. Never type test strings into a message composer that could send them, or replace an existing user document.
 - Do not ask the user to paste an API key into chat. Do not put a secret in command arguments, a settings file, an environment example, logs, the clipboard, or a commit.
 - Local mode must never fall back to cloud. Model enhancement starts **off**. Cloud use requires the user's choice, either for a specific app or as the default for unconfigured apps.
+- Training capture is a separate choice and starts **off**, with an empty selected-app list. Installation, model enablement or export must never silently enable it. Preserve existing user-selected paths and app scopes; never collect ordinary user input as an installation test.
 - Do not run `scripts/evaluate.py` as an installation test. It is an optional legacy experiment requiring separate prepared data and an explicit call budget; it does not measure the current second-slot UI policy.
 - Do not change probability thresholds, response deadlines, or candidate words merely to produce a successful-looking screenshot.
 
@@ -30,7 +31,7 @@ If these are missing, stop the dependent step and explain what is missing. Use o
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout feat/training-capture
+git checkout v0.5.0
 git rev-parse HEAD  # Record and retain the exact reviewed revision used for installation.
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
@@ -38,9 +39,13 @@ bash scripts/bootstrap_dev.sh
 
 If the checkout already exists, inspect it first, preserve local changes, and explicitly select the requested release. Do not use a floating `git pull` as an install step.
 
+Use `v0.5.0` for this guide and record its resolved commit from `git rev-parse HEAD` in the local installation report. This release includes the 0.4.2 current-line context changes and 0.5.0 encrypted capture. The runtime was verified locally at `7cdde9e6ad3cc4375110d241b6bbfc3bec8a131b`; later release changes are Markdown only. That historical receipt does not authorize installation on another machine or from the release commit: run the exact-source preflight below for the selected checkout.
+
 The bootstrap uses upstream Squirrel commit `876adebaf2f612951dcdca8a591de65401222b9a` under ignored `work/upstream/squirrel`. It must not force-reset an existing different checkout. The native builder pins librime headers to `a251145d3aafa33871824a40bbec04c966bd8b56` and Sparkle source metadata to `41847a58cdef7506b257591fcca6f9495df591d4`.
 
 All temporary files, downloaded sources, binaries, model weights, and local test evidence belong under ignored `work/` or `artifacts/`. No personal dictionary is needed by the public regression suite: it uses synthetic fixtures in `tests/fixtures/rime`.
+
+Source archives exclude captures, exported training datasets, personal dictionaries and credentials. The hand-authored `evaluation/cases.jsonl` is a synthetic evaluation fixture, not collected training data. Never stage user-selected capture directories or attach local captures/exports/backups to a release; `.gitignore` cannot protect an arbitrary export filename chosen by a user.
 
 ## 3. Back up before installation
 
@@ -149,7 +154,7 @@ The post-install check verifies bundle name/ID, signature, binary receipt, deplo
 
 ## Training capture during installation
 
-Capture is independent of enhancement and starts off with an empty selected-app list. Do not enable it globally or in normal user applications as an installation test. The installer initializes missing capture settings to off and preserves the user's enhancement profiles and credentials. Confirm the installed Training data window shows off, the directory selector and app controls, and no unexpected capture files.
+Capture is independent of enhancement and starts off with an empty selected-app list. Its suggested directory is `~/Library/Application Support/Rime-Jev/TrainingData`; the user can select another directory and either included or excluded applications. Do not enable it globally or in normal user applications as an installation test. The installer initializes missing capture settings to off and preserves existing path/scope choices, enhancement profiles and credentials. Verify off for a fresh/default-off installation, the directory selector and app controls, and no unexpected capture files. On an existing installation, preserve any explicitly chosen capture state instead of resetting it solely to match the default.
 
 For an explicitly authorized synthetic acceptance test, use only the dedicated test app and a disposable user-selected directory. Restore off afterwards and remove temporary application/path choices. Never retrieve or print the separate capture encryption key. Automated tests inject their own synthetic key and never touch the real Keychain. Preview/export/deletion close capture first and leave it closed. A local tokenizer is optional for records/sft export; instruction export requires a compatible locally supplied tokenizer and passes token-length/answer-boundary checks. Do not start training or upload records during installation.
 
