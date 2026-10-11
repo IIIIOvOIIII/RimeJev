@@ -97,3 +97,23 @@ Global-scope saves write Settings directly and remain available if the originati
 ### v0.4.1 publication package
 
 The release keeps the exact runtime code verified and installed at `8138c198ab16225026039b4c56969db9f617bc96`. Subsequent changes only update Markdown documentation, including installation commands pinned to `v0.4.1`. The preflight source receipt was recomputed and matched before publication. Existing test and installation results are reused because the runtime is unchanged; this publication does not require another local installation or enable the global default. GitHub source archives exclude credentials, settings, personal dictionaries, input data, local evidence, binaries and downloaded models.
+
+## 0.4.2 current-line and empty-context decisions
+
+Installed source is `d53c20e8815ce88a13e5fd4caa53772902be88b2`. The final full preflight and read-only installed smoke passed, including a fresh acknowledgement from a running 0.4.2 process. The installed binary matches the exact preflight receipt. All user settings match the immediate pre-install snapshot, including the user's current dual-mode global default, application overrides, model choices, order, timeouts and credential metadata.
+
+| Check | Evidence |
+| --- | --- |
+| Python | 423 tests passed; empty-context TT/Jev/Tev behavior covered with fake transports/models |
+| Context extraction | Existing/pasted text, hard newlines, caret middle insertion, marked-text exclusion, confirmed-prefix composition, Unicode boundaries, adjusted/invalid ranges, empty and unavailable text, verified fallback and exact snapshot matching passed |
+| Actual native adapter | 15 scenarios compile the unchanged adapter and real coordinators against in-memory host/Rime/runtime boundaries. Both priorities, empty-context dispatch/application, stale text/caret rejection, unknown-anchor abstention, coalescing and remaining budgets passed |
+| Existing native regressions | Settings profiles, runtime lifecycle, source badges, 66 candidate-planner cases, Keychain and Shift-indicator tests passed |
+| Real Rime | 437 controlled engine probes passed; actual Lua candidate ordering and commits are separate from adapter stubs |
+| Build/install | arm64 compile/signature, disk receipt, running version and source registration checks passed |
+| Publication hygiene | Scoped complete Git-history scan found no secrets; work/evidence and local state remain ignored |
+
+The first installation's file checks passed, but typing diagnostics exposed an old process relaunched before file replacement. That attempt was not counted as 0.4.2 acceptance. The installer now releases a selected source, waits for the old process to exit before copying and restores the prior source only when appropriate; smoke also checks the running version. A new full gate and deployment passed after this correction.
+
+Live automation observed current-line reads and model requests in TextEdit with approximately 0.45–1.12ms read duration, but its latest-client diagnostics did not correspond to the dedicated validation window. This is evidence of a live read path, not completion of that window's scenario. The user subsequently confirmed a model recommendation in the dedicated 0.4.2 host after choosing the existing-text fixture, selecting RimeJev from the system menu, pausing about ten seconds and manually typing `sj`. This is manual acceptance of existing current-line context after a pause; no exact word or provider was asserted. Newline/middle-insertion/empty-context boundary cases are covered by the isolated parser/adapter tests, not claimed as separately accepted real-model UI scenarios. No model thresholds, user timeouts or candidate contents were altered to force a prediction.
+
+The IMK host API is synchronous. Reads are bounded and coalesced after debounce; host latency counts against deadlines and a slow read triggers temporary backoff. This cannot interrupt the first slow host call. Unknown caret positions abstain; host-specific text availability still needs per-application verification. No Accessibility/OCR/clipboard-reader fallback was introduced.

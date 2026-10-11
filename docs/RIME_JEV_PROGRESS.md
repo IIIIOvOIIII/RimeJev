@@ -107,3 +107,11 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Initial preflight and installation smoke passed at `5a52bb5`, but live diagnostics exposed an old-code process automatically relaunched while files were being copied. This was not counted as new-feature acceptance.
 - Fix: on updates, temporarily release a selected RimeJev source, await the previous process exiting, replace/build/register, then restore the same source if the user has not changed selection. Other input-source choices remain unchanged. Status now includes the running bundle version; installation records the actual preserved global mode.
 - Next: rerun the exact-source gate and installation, then resume synthetic typing validation.
+
+### 2026-10-11 — final 0.4.2 deployment
+
+- Current work: installed `d53c20e8815ce88a13e5fd4caa53772902be88b2` after the second full exact-source preflight.
+- Result: build/signature, 423 backend tests, all native suites, 15 adapter cases, 437 real-Rime probes and installed smoke passed. Running version is 0.4.2 and the installed binary matches its receipt. Every saved setting is unchanged; current global mode remains dual.
+- Live scope: current-line reads/model requests observed, but automation reported TextEdit rather than the dedicated host. The user subsequently confirmed a model recommendation for existing text + a ten-second pause + manual sj in the dedicated 0.4.2 host.
+- Result: core manual typing acceptance is complete. Newline/middle-insertion/empty-context checks are isolated code/adapter evidence; no universal app compatibility or particular model prediction is claimed.
+- Next: normal use and issue-driven fixes; no required development/deployment work remains. Recoverable 0.4.1 backups are retained. Code is on the feature branch; no main merge or formal 0.4.2 release in this local-deployment task.

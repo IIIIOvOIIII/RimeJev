@@ -84,6 +84,8 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 
 ### 验证与范围
 
+0.4.2 已通过 423 项后端测试、15 个实际适配器流程场景、语境解析测试及 437 组真实 Rime 探针，并完成本机安装与运行版本检查。现有设置全部保留；实际输入观察及应用兼容边界见 [VALIDATION.md](docs/VALIDATION.md)。
+
 0.4.1 已完成默认继承、单独覆盖、恢复默认、旧配置兼容、存储重载和安全输入测试；实际设置窗口确认全局默认关闭，现有应用覆盖保留。按用户选择，本机验收没有开启全局增强，激活继承行为在隔离配置中验证。
 
 0.4.0 通过了 396 项后端测试、437 组真实 Rime 引擎探针、原生设置/切换/密钥/语言提示测试及本机安装检查。实际设置窗口验证了双后台就绪、上下排序、跨模式保留和密钥隐藏输入；用户已确认 Shift 中英文提示。候选引擎探针使用合成词库与受控推荐，不代表真实模型准确率。公开版保留候选逻辑，移除了私有开发环境依赖，并用合成测试词库替代个人词库副本；公开版构建/测试与现场输入验收分别记录在 [VALIDATION.md](docs/VALIDATION.md)。模型仍可能判断错误，首次连接和慢响应可能保持原排序。
@@ -143,6 +145,8 @@ Cloud mode sends a bounded preceding context, the current pinyin, and candidates
 An actual Shift-triggered language change shows a one-second Chinese/English indicator near the caret. It is separate from the candidate panel and never takes focus; unchanged Shift combinations do not show it.
 
 ### Validation and limitations
+
+0.4.2 passed 423 backend tests, 15 actual-adapter scenarios, context-parser tests and 437 real-Rime probes, plus local installation and running-version checks. All existing settings were preserved. See [VALIDATION.md](docs/VALIDATION.md) for live typing observations and application-specific boundaries.
 
 0.4.1 validates default inheritance, complete overrides, reset, legacy compatibility, reload, and secure-input eligibility. The installed UI confirms the global default is off and existing app overrides remain intact. Active global profiles were tested in isolated settings; the live default stayed off at the user’s request.
 
