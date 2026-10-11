@@ -63,6 +63,7 @@ struct RuntimeLifecycleTests {
     manager.stop()
     wait("stop releases runtime") { events().filter {$0=="released local"}.count==2 }
     wait("socket removed") {!FileManager.default.fileExists(atPath:manager.socketPath("local"))}
+    manager.drainForTests()
     // Reuse a runtime launched by an earlier input-method process, without a Process handle.
     let external=Process()
     external.executableURL=URL(fileURLWithPath:root+"/.venv/bin/python")
@@ -91,6 +92,7 @@ struct RuntimeLifecycleTests {
     precondition(events().filter {$0=="start tev-4b"}.count==2,"download changed current selection")
     manager.stop()
     wait("reloaded runtime stopped") {events().filter {$0=="released local"}.count==4}
+    manager.drainForTests()
     JevSettings.current.credentialSource="vault" // Fake runtime never uses credentials.
     manager.ensureRunning(providers:["jev","local"])
     wait("both runtimes coexist") {events().contains("start jev") && events().filter {$0=="start local"}.count==5}
@@ -107,6 +109,7 @@ struct RuntimeLifecycleTests {
     wait("local-only stops cloud") {events().contains("released jev") && events().filter {$0=="start local"}.count==6}
     manager.stop()
     wait("dual fixtures stopped") {events().filter {$0=="released local"}.count==6}
+    manager.drainForTests()
     cloudCall.cancel();localCall.cancel()
     let blocked=DispatchSemaphore(value:0),credentialEntered=DispatchSemaphore(value:0)
     let waitingManager=JevRuntimeManager(keyReader:{credentialEntered.signal();blocked.wait();return "synthetic-credential"})
@@ -120,6 +123,7 @@ struct RuntimeLifecycleTests {
     precondition(events().filter {$0=="start jev"}.count==cloudsBefore,"stale Keychain completion launched cloud")
     waitingManager.stop()
     wait("waiting manager stopped") {events().filter {$0=="released local"}.count==7}
+    waitingManager.drainForTests()
     let credentialsManager=JevRuntimeManager(keyReader:{"synthetic-credential"})
     JevSettings.current.credentialRevision=1
     credentialsManager.ensureRunning(providers:["jev","tev-4b"])
@@ -139,6 +143,7 @@ struct RuntimeLifecycleTests {
     wait("local pressure preserves cloud response") {pressureCloudDone}
     credentialsManager.stop()
     wait("credential manager fully stopped") {!FileManager.default.fileExists(atPath:credentialsManager.socketPath("jev")) && !FileManager.default.fileExists(atPath:credentialsManager.socketPath("tev-0.8b"))}
+    credentialsManager.drainForTests()
     pressureCall.cancel()
     adoptedCall.cancel()
     call.cancel()

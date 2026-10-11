@@ -157,6 +157,7 @@ final class JevRuntimeManager {
     guard isCurrent(token) else {return}
     var pending=Set<String>()
     for provider in JevProviders.active {
+      guard isCurrent(token) else {return}
       let changed=configurations[provider] != nil && configurations[provider] != desired[provider]
       let unverifiedKey=provider=="jev" && desired[provider]?.credentialSource=="keychain" && configurations[provider]==nil && FileManager.default.fileExists(atPath:socketPath(provider))
       if desired[provider]==nil || changed || unverifiedKey || forceReload.contains(provider) {
@@ -169,6 +170,7 @@ final class JevRuntimeManager {
     guard isCurrent(token) else {return}
     // Jev and one local process may coexist. A slow local release does not delay Jev.
     for provider in ["jev"]+JevProviders.local {
+      guard isCurrent(token) else {return}
       guard let config=desired[provider], !pending.contains(provider) else {continue}
       if JevProviders.local.contains(provider) && (resourceBackoff>Date() || !pending.isDisjoint(with:JevProviders.local)) {continue}
       if processes[provider]?.isRunning==true && configurations[provider]==config {markReady(provider,token:token);continue}

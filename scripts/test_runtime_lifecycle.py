@@ -48,6 +48,7 @@ record('released '+a.provider);Path(a.socket).unlink()
     marker = 'FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Rime-Jev")'
     assert source.count(marker) == 1
     source = source.replace(marker, 'URL(fileURLWithPath: ' + json.dumps(str(fixture / 'sockets')) + ')')
+    source += '\nextension JevRuntimeManager { func drainForTests() { queue.sync {} } }\n'
     extracted = fixture / 'RuntimeUnderTest.swift'
     extracted.write_text(source)
     executable = fixture / 'RuntimeLifecycleTests'
