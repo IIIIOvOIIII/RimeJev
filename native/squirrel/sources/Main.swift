@@ -36,6 +36,9 @@ struct SquirrelApp {
         case "--settings":
           DistributedNotificationCenter.default().postNotificationName(.init("RimeJevSettingsNotification"), object: nil, userInfo: nil, deliverImmediately: true)
           return true
+        case "--training-settings":
+          DistributedNotificationCenter.default().postNotificationName(.init("RimeJevTrainingSettingsNotification"), object:nil, userInfo:nil, deliverImmediately:true)
+          return true
         case "--status":
           DistributedNotificationCenter.default().postNotificationName(.init("RimeJevStatusNotification"), object: nil, userInfo: nil, deliverImmediately: true)
           return true

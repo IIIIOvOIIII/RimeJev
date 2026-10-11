@@ -93,6 +93,7 @@ final class SquirrelInputController {
 struct JevSettings {
     static var current = JevSettings()
     var selectedProviders = ["local"]
+    var training: JevTrainingSettings?
     var localThreshold = 0.65
     var jevThreshold = 0.55
     var tevThreshold: Double? = 0.65
@@ -150,4 +151,12 @@ final class JevRuntimeManager {
                                            model: "in-memory-fixture", choiceID: choice,
                                            probabilities: probabilities))
     }
+}
+
+final class JevTrainingStore {
+    static let shared=JevTrainingStore()
+    var records:[Data]=[]
+    private var settings=JevTrainingSettings()
+    func configure(_ value:JevTrainingSettings) {settings=value}
+    func submit(_ data:Data)->Bool {guard settings.enabled else{return false};records.append(data);return true}
 }

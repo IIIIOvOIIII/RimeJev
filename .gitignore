@@ -30,3 +30,8 @@ jev-budget.json
 
 # Also ignore a developer-local symlink to a virtual environment.
 .venv
+
+# Private opt-in training captures and exports.
+*.rjcapture
+training-exports/
+TrainingData/

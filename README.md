@@ -14,6 +14,14 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 需要例外时选择 **当前应用单独设置**；单独设置优先，包括明确关闭增强。点击“跟随默认”可移除该应用的覆盖，重新使用全局默认。菜单也提供“当前应用：跟随所有应用默认”。超时仍按模型统一保存；安全输入和输入法自身设置不运行增强。
 
+### 训练数据采集（0.5.0，默认关闭）
+
+输入法菜单新增“训练数据采集与管理…”，也可从语境设置中的“训练数据…”打开。采集独立于增强模式，初始关闭且采集应用名单为空。用户自行选择保存文件夹、仅采集哪些应用或排除哪些应用、是否包含前文与模型结果，以及容量上限。
+
+记录关联真实拼音、有限同一行前文、原生候选、展示顺序、已有模型结果及实际选词。原始记录以 AES-GCM 加密保存在本机，使用独立钥匙串密钥；关闭增强时也可记录原生选择，不会额外加载或调用模型。采集失败只暂停记录。支持只读预览、移到废纸篓和本地训练集导出；数据管理会先关闭采集，完成后保持关闭。
+
+导出数据是明文，请先审阅。无需分词器即可导出通用 records/sft；选择兼容的本地分词器后，可导出经过 token 和答案边界校验的 Tev prompt/completion 文件。不自动下载分词器、不上传数据、不启动训练。完整字段、隐私及使用边界见 [训练数据说明](docs/TRAINING_CAPTURE.md)。
+
 ### 当前行语境（0.4.2）
 
 增强开启时，输入法读取当前输入框中、正在组合的拼音之前的同一逻辑行文字，最多使用最近 80 个完整字符。已有内容、粘贴内容、停顿后继续输入都可成为语境；窗口自动折行不切断语境，实际换行会切断。组合中已确认的汉字前缀只拼接一次。当前行为空时，也可根据拼音和真实候选调用模型，模型可以放弃推荐。
@@ -38,7 +46,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 ### 安装
 
-这是 **0.4.2 源码开发版**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
+这是 **0.5.0 源码开发版**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
 
 请将 [LLM_INSTALL.md](LLM_INSTALL.md) 交给协助安装的 LLM。它包含环境检查、固定版本依赖、测试、备份、安装、系统授权、手动验收及回退步骤。完整 Xcode 不是前提。不要跳过检查直接运行安装器。
 
@@ -47,7 +55,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout feat/current-line-context
+git checkout feat/training-capture
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 bash scripts/run_quality_gate.sh --gate local
@@ -105,6 +113,14 @@ RimeJev adds asynchronous contextual recommendations to native Wanxiang candidat
 Choose **All applications defaults** in the settings scope to configure the mode, local backend, and priority once. Apps without overrides inherit it automatically, without allowlist enrollment. The new global default starts **off**; upgrading never promotes a previously selected app's cloud mode into a global choice.
 
 Choose **Current application settings** to create an exception. Explicit app settings, including off, take precedence. **Follow default** removes the complete app override and resumes inheritance. Timeouts remain shared per model. Secure input and the input method's own settings remain excluded.
+
+### Training capture (0.5.0, off by default)
+
+Open the input menu's training-data settings or the Training data button in preferences. Capture has its own off-by-default switch and initially empty application allowlist, independent of enhancement mode. Choose the local directory, included/excluded applications, context/model fields and size limit.
+
+Records link actual pinyin, bounded current-line context, native candidates, displayed order, existing model results and observed human choices. AES-GCM encrypts local captures with a separate Keychain key. Capture-only mode records native choices without loading/calling models. Storage failures pause capture while normal input remains available. Preview, recoverable deletion and local export first disable capture and leave it off afterwards.
+
+Exports are plaintext and need review. Generic records/sft exports require no tokenizer; a compatible local tokenizer enables validated Tev prompt/completion exports. No tokenizer download, data upload or training is automatic. See [the training-data guide](docs/TRAINING_CAPTURE.md) for fields and boundaries.
 
 ### Current-line context (0.4.2)
 

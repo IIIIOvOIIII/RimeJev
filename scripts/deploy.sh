@@ -64,6 +64,7 @@ if settings.exists():
  data['projectRoot']=root
 else:
  data={'mode':'off','allowedApps':[],'appModes':{},'projectRoot':root,'modelPath':root+'/work/models/this-that-model-1.2','vaultRef':'typesafe_api_key','localThreshold':0.65,'jevThreshold':0.55}
+data.setdefault('training', {'enabled':False,'scope':'selected','includedApps':[],'excludedApps':[]})
 settings.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
 settings.chmod(0o600)
 info['default_mode']=data.get('defaultMode','off')

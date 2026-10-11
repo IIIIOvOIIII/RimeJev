@@ -237,6 +237,12 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
         JevPreferences.show(for: controller)
       }
     }
+    notifCenter.addObserver(forName: .init("RimeJevTrainingSettingsNotification"), object:nil, queue:.main) { _ in
+      JevTrainingPreferences.show(settings:JevSettings.current.training ?? JevTrainingSettings(),
+        currentApp:SquirrelInputController.latestController?.currentApp ?? "",projectRoot:JevSettings.current.projectRoot) { value in
+          JevSettings.current.training=value;JevSettings.save();JevInputAdapter.reloadTraining()
+        }
+    }
     notifCenter.addObserver(forName: .init("RimeJevStatusNotification"), object: nil, queue: .main) { [weak self] _ in
       guard let self else { return }
       let controller = SquirrelInputController.latestController ?? self.panel?.inputController
@@ -248,7 +254,11 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
         "controller_class_available": NSClassFromString("Squirrel.SquirrelInputController") != nil,
         "controllers_created": SquirrelInputController.createdControllers,
         "received_events": controller?.receivedEvents ?? 0,
-        "ime_metrics": controller?.jev.diagnostics ?? [:]]
+        "ime_metrics": controller?.jev.diagnostics ?? [:],
+        "training_capture": ["enabled":JevSettings.current.training?.enabled ?? false,
+                             "state":JevTrainingStore.shared.status().state,
+                             "written":JevTrainingStore.shared.status().written,
+                             "dropped":JevTrainingStore.shared.status().dropped]]
       if let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]) {
         try? data.write(to: SquirrelApp.userDir.appendingPathComponent("jev-status.json"), options: .atomic)
       }

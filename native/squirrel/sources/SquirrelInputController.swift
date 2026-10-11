@@ -148,6 +148,7 @@ final class SquirrelInputController: IMKInputController {
   }
 
   func selectCandidate(_ index: Int) -> Bool {
+    jev.trainingMouseSelection(index)
     jev.commitLock()
     let success = rimeAPI.select_candidate_on_current_page(session, index)
     if success {
@@ -289,6 +290,8 @@ final class SquirrelInputController: IMKInputController {
     let jevSettings = NSMenuItem(title: "语境选词设置…", action: #selector(showJevSettings), keyEquivalent: "")
     jevSettings.target = self
     menu.addItem(jevSettings)
+    let trainingSettings = NSMenuItem(title: "训练数据采集与管理…", action: #selector(showTrainingSettings), keyEquivalent: "")
+    trainingSettings.target=self;menu.addItem(trainingSettings)
     menu.addItem(.separator())
     menu.addItem(deploy)
     menu.addItem(sync)
@@ -301,6 +304,12 @@ final class SquirrelInputController: IMKInputController {
   }
 
   @objc func showJevSettings() { JevPreferences.show(for: self) }
+  @objc func showTrainingSettings() {
+    JevTrainingPreferences.show(settings:JevSettings.current.training ?? JevTrainingSettings(),currentApp:currentApp,
+      projectRoot:JevSettings.current.projectRoot) { value in
+        JevSettings.current.training=value;JevSettings.save();JevInputAdapter.reloadTraining()
+      }
+  }
   @objc func jevFollowDefault() {jev.followDefault()}
   @objc func jevOff() { jev.chooseMode("off") }
   @objc func jevLocal() { jev.chooseMode("local") }
@@ -598,8 +607,9 @@ extension SquirrelInputController {
       showPanel(preedit: inlinePreedit ? "" : preedit, selRange: selRange, caretPos: caretPos.utf16Offset(in: preedit),
                 candidates: candidates, comments: comments, labels: labels, highlighted: Int(ctx.menu.highlighted_candidate_index),
                 page: page, lastPage: lastPage)
+      let trainingHighlight=Int(ctx.menu.highlighted_candidate_index)
       _ = rimeAPI.free_context(&ctx)
-      jev.afterRender(candidates: candidates, page: page, prefix: String(preedit[..<start]), displayCode: String(preedit[start..<end]))
+      jev.afterRender(candidates: candidates, page: page, prefix: String(preedit[..<start]), displayCode: String(preedit[start..<end]), highlighted:trainingHighlight)
     } else {
       hidePalettes()
     }

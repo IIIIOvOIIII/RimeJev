@@ -29,7 +29,7 @@ def main():
         # Snapshot real dependencies as well, since another editor may be working.
         for relative in (
             "JevCore.swift", "JevCommittedContext.swift", "JevLineContext.swift",
-            "JevCandidatePlan.swift", "JevBadge.swift",
+            "JevCandidatePlan.swift", "JevBadge.swift", "JevTrainingSettings.swift", "JevTrainingCapture.swift",
             "tests/JevContextAdapterStubs.swift", "tests/JevContextAdapterTests.swift",
         ):
             target = work / Path(relative).name

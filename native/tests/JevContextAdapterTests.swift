@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 private let baseline = [
     JevCandidate(id: "a", text: "邮箱", key: "key-a"),
@@ -238,6 +239,50 @@ private func testDispatchBudget() {
     pass()
 }
 
+private func testCaptureWithoutModels() {
+    scenario="opt-in capture while enhancement is off"
+    let f=Fixture(text:"汽车",providers:[])
+    defer {f.stop();JevSettings.current.training=nil;JevInputAdapter.reloadTraining()}
+    JevTrainingStore.shared.records.removeAll()
+    f.render()
+    RunLoop.main.run(until:Date(timeIntervalSinceNow:0.03))
+    expect(f.client.reads==0 && JevTrainingStore.shared.records.isEmpty,"default off does not read or record training text")
+    var settings=JevTrainingSettings();settings.enabled=true;settings.includedApps=[f.controller.currentApp]
+    JevSettings.current.training=settings;JevInputAdapter.reloadTraining()
+    f.render()
+    waitUntil("capture-only context read") {f.client.reads>0}
+    expect(f.runtime.pending.isEmpty && f.runtime.starts.isEmpty,"capture-only must not load/call models")
+    f.adapter.trainingMouseSelection(1)
+    f.adapter.willCommit("油箱")
+    expect(JevTrainingStore.shared.records.count==1,"mouse choice reaches capture sink")
+    let record=try! JSONSerialization.jsonObject(with:JevTrainingStore.shared.records[0]) as! [String:Any]
+    expect((record["context"] as! [String:Any])["text"] as? String=="汽车","captured host prefix")
+    expect((record["selection"] as! [String:Any])["text"] as? String=="油箱","actual commit label")
+    expect((record["models"] as! [Any]).isEmpty,"no invented model data")
+    settings.enabled=false;JevSettings.current.training=settings;JevInputAdapter.reloadTraining()
+    f.render();f.adapter.willCommit("邮箱")
+    expect(JevTrainingStore.shared.records.count==1,"off discards later records")
+    pass()
+}
+
+private func testCaptureScopeAndDigit() {
+    scenario="capture app selection and keyboard intent"
+    let f=Fixture(text:"汽车",providers:[])
+    defer {f.stop();JevSettings.current.training=nil;JevInputAdapter.reloadTraining()}
+    JevTrainingStore.shared.records.removeAll()
+    var settings=JevTrainingSettings();settings.enabled=true;settings.includedApps=["another.app"]
+    JevSettings.current.training=settings;JevInputAdapter.reloadTraining();f.render()
+    RunLoop.main.run(until:Date(timeIntervalSinceNow:0.03))
+    expect(f.client.reads==0,"excluded app does not collect prefix")
+    settings.includedApps=[f.controller.currentApp];JevSettings.current.training=settings;JevInputAdapter.reloadTraining();f.render()
+    waitUntil("allowed capture") {f.client.reads>0}
+    let event=NSEvent.keyEvent(with:.keyDown,location:.zero,modifierFlags:[],timestamp:0,windowNumber:0,context:nil,characters:"2",charactersIgnoringModifiers:"2",isARepeat:false,keyCode:19)!
+    f.adapter.beforeEvent(event);f.adapter.willCommit("油箱")
+    let record=try! JSONSerialization.jsonObject(with:JevTrainingStore.shared.records[0]) as! [String:Any]
+    expect((record["selection"] as! [String:Any])["method"] as? String=="digit","digit metadata bound before processing")
+    pass()
+}
+
 @main
 struct JevContextAdapterTests {
     static func main() {
@@ -256,6 +301,8 @@ struct JevContextAdapterTests {
         testOriginalFirst(["jev", "local"])
         testOriginalFirst(["local", "jev"])
         testDispatchBudget()
+        testCaptureWithoutModels()
+        testCaptureScopeAndDigit()
         print("JevContextAdapterTests PASS: \(cases) cases; actual adapter/coordinators with main-runloop scheduling")
     }
 }

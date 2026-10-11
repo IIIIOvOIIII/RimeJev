@@ -15,7 +15,7 @@ commands:
     side_effect: local
   frontend:
     argv: [bash, scripts/coverage_swift.sh]
-    timeout_seconds: 120
+    timeout_seconds: 240
     side_effect: local
   lint:
     argv: [.venv/bin/python, -m, compileall, -q, src, scripts]

@@ -16,6 +16,11 @@ print('Swift coordinator lines:',x['lines']['percent'])
 PY
 
 bash scripts/test_jev_context.sh
+bash scripts/test_training_capture.sh
+bash scripts/test_training_store.sh
+.venv/bin/python scripts/test_training_pipeline.py
+swiftc -parse-as-library native/JevTrainingSettings.swift native/JevTrainingStore.swift native/JevTrainingPreferences.swift native/tests/JevTrainingPreferencesTests.swift -framework AppKit -framework CryptoKit -framework Security -o work/JevTrainingPreferencesTests
+work/JevTrainingPreferencesTests
 .venv/bin/python scripts/test_context_adapter.py
 swiftc -parse-as-library native/JevBadge.swift native/tests/JevBadgeTests.swift -framework AppKit -o work/JevBadgeTests
 work/JevBadgeTests

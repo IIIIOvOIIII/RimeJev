@@ -1,4 +1,4 @@
-# LLM_INSTALL — RimeJev 0.4.2
+# LLM_INSTALL — RimeJev 0.5.0
 
 This is the dedicated installation contract for an LLM helping a user. 中文：这是提供给安装助手的独立指引；先检查、备份、验证，再安装，不能把构建成功当成真实输入验收。
 
@@ -30,7 +30,7 @@ If these are missing, stop the dependent step and explain what is missing. Use o
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout feat/current-line-context
+git checkout feat/training-capture
 git rev-parse HEAD  # Record and retain the exact reviewed revision used for installation.
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
@@ -146,6 +146,14 @@ The installer verifies the receipt, stops this project's runtimes, backs up its 
 If macOS requests input-method permission, let the user grant the displayed permission through the normal system UI. The requesting app must be **鼠须管 Jev**, not a generic `swift` helper. Do not edit permission databases or source lists to bypass consent. If registration takes time, check actual state before a bounded re-registration of the same app; do not repeatedly reinstall or create another bundle ID.
 
 The post-install check verifies bundle name/ID, signature, binary receipt, deployed Lua/source equality, and input-source availability. Original input methods may coexist; removing them is not part of this guide.
+
+## Training capture during installation
+
+Capture is independent of enhancement and starts off with an empty selected-app list. Do not enable it globally or in normal user applications as an installation test. The installer initializes missing capture settings to off and preserves the user's enhancement profiles and credentials. Confirm the installed Training data window shows off, the directory selector and app controls, and no unexpected capture files.
+
+For an explicitly authorized synthetic acceptance test, use only the dedicated test app and a disposable user-selected directory. Restore off afterwards and remove temporary application/path choices. Never retrieve or print the separate capture encryption key. Automated tests inject their own synthetic key and never touch the real Keychain. Preview/export/deletion close capture first and leave it closed. A local tokenizer is optional for records/sft export; instruction export requires a compatible locally supplied tokenizer and passes token-length/answer-boundary checks. Do not start training or upload records during installation.
+
+See [TRAINING_CAPTURE.md](docs/TRAINING_CAPTURE.md) for data format and privacy boundaries.
 
 ## 7. Verify actual typing separately
 

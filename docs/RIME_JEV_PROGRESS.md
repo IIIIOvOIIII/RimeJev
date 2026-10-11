@@ -115,3 +115,18 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Live scope: current-line reads/model requests observed, but automation reported TextEdit rather than the dedicated host. The user subsequently confirmed a model recommendation for existing text + a ten-second pause + manual sj in the dedicated 0.4.2 host.
 - Result: core manual typing acceptance is complete. Newline/middle-insertion/empty-context checks are isolated code/adapter evidence; no universal app compatibility or particular model prediction is claimed.
 - Next: normal use and issue-driven fixes; no required development/deployment work remains. Recoverable 0.4.1 backups are retained. Code is on the feature branch; no main merge or formal 0.4.2 release in this local-deployment task.
+
+## 2026-10-11 — 0.5.0 opt-in training capture (approved)
+
+- Current work: implement the approved local encrypted capture, application/directory controls and offline training export.
+- Expected result: default off independently of enhancement; bind observed candidate/context/model/display/selection records; preserve user configuration and leave capture off after local deployment.
+- Scope/budget: native capture/UI, encrypted bounded writer, local export and synthetic tests; no real private input collection, no model training/upload, no main merge or release tag. At most five recovery attempts per failure class, one full final preflight unless changes require repeating it.
+- Result: clean 0.4.2 feature baseline verified at b0d7af6.
+- Next: implement disjoint storage/export components and native event integration, then review, tests, backup/install and default-off UI verification.
+
+### Implementation and isolated verification
+
+- Current work: all capture/settings/storage/export components implemented. Defaults remain off, empty selected-app scope and independent of enhancement.
+- Result: collector privacy/scope/commit/rollback tests, 17 actual adapter scenarios, 15 encrypted-storage suites and 75 exporter tests passed. Actual collector→AES-GCM file→off-main decryption→Python export passed three synthetic pipelines, including human/model disagreement and correction exclusion. Native UI validation and initial build/signature passed. No real input or real Keychain key was used by automated tests.
+- Review fixes: unavailable context stays null; undone partial choices are pruned and commit chains validated; model opt-out removes source annotations; custom missing directories never recreate; disable acknowledgement follows worker quiescence; training instruction files now match the official prompt/completion contract with local tokenizer/token-boundary checks.
+- Next: exact-source full preflight, backup/install, confirm default-off UI and narrowly scoped synthetic live acceptance, then restore default-off configuration.

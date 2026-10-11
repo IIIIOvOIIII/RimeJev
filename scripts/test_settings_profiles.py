@@ -31,7 +31,7 @@ def main():
         subprocess.run(
             [
                 "swiftc", "-parse-as-library",
-                str(root / "native/JevCore.swift"), str(extracted),
+                str(root / "native/JevCore.swift"), str(root / "native/JevTrainingSettings.swift"), str(extracted),
                 str(root / "native/tests/JevSettingsProfileTests.swift"),
                 "-framework", "AppKit", "-framework", "InputMethodKit",
                 "-framework", "Carbon", "-o", str(executable),

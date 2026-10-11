@@ -24,6 +24,7 @@ struct JevSettings: Codable {
   var defaultMode: String?
   var defaultLocalModel: String?
   var defaultModelOrder: [String]?
+  var training: JevTrainingSettings?
   private static let modes=["off","jev","local","dual"]
   private static func normalizedMode(_ value:String)->String {
     if JevProviders.local.contains(value) {return "local"}
@@ -377,7 +378,14 @@ final class JevInputAdapter {
       instance.value?.rebuildCoordinator()
     }
   }
+  static func reloadTraining() {
+    JevTrainingStore.shared.configure(JevSettings.current.training ?? JevTrainingSettings())
+    instances.removeAll { $0.value == nil }
+    for instance in instances { instance.value?.trainingGeneration &+= 1; instance.value?.updateTrainingPolicy() }
+  }
   weak var controller: SquirrelInputController?
+  private var trainingGeneration: UInt64 = 0
+  private lazy var trainingCapture = JevTrainingCapture(sink: { JevTrainingStore.shared.submit($0) })
   private var epoch: UInt64 = 0
   private var focusGeneration: UInt64 = 0
   private var schema = ""
@@ -430,6 +438,8 @@ final class JevInputAdapter {
   init(controller: SquirrelInputController) {
     self.controller = controller
     rebuildCoordinator()
+    JevTrainingStore.shared.configure(JevSettings.current.training ?? JevTrainingSettings())
+    updateTrainingPolicy()
     Self.instances.append(WeakAdapter(value: self))
   }
   var enhancementMode: String {JevSettings.current.enhancementMode(for:controller?.currentApp ?? "")}
@@ -438,6 +448,77 @@ final class JevInputAdapter {
   var eligible: Bool {
     guard let controller else {return false}
     return JevSettings.current.permitsEnhancement(for:controller.currentApp,secureInput:IsSecureEventInputEnabled())
+  }
+  private var trainingEligible: Bool {
+    (JevSettings.current.training ?? JevTrainingSettings()).permits(app:controller?.currentApp ?? "",secureInput:IsSecureEventInputEnabled())
+  }
+  private func updateTrainingPolicy() {
+    trainingCapture.configure(JevSettings.current.training ?? JevTrainingSettings(),app:controller?.currentApp ?? "",secureInput:IsSecureEventInputEnabled())
+  }
+  func trainingMouseSelection(_ index:Int) {
+    updateTrainingPolicy()
+    guard trainingEligible else { return }
+    prepareTrainingSelection(method:"mouse",index:index)
+  }
+  private func prepareTrainingSelection(method:String,index:Int?=nil) {
+    guard trainingEligible, let token=trainingCapture.token else {return}
+    if trainingCapture.wantsContext {
+      if let snapshot=captureContext(forTraining:true) {trainingCapture.context(snapshot,token:token)}
+      else {trainingCapture.clearContext(token:token)}
+    }
+    trainingCapture.choose(method:method,index:index)
+  }
+  private func trainingEvent(_ event:NSEvent) {
+    updateTrainingPolicy()
+    guard trainingEligible,let c=controller,!c.rimeAPI.get_option(c.session,"ascii_mode") else {return}
+    if event.modifierFlags.contains(.command) {trainingCapture.cancel("command");return}
+    let code=Int(event.keyCode), chars=event.charactersIgnoringModifiers ?? ""
+    if code==53 {trainingCapture.cancel("escape");return}
+    if code==49 {prepareTrainingSelection(method:"space")}
+    else if [36,76].contains(code) {prepareTrainingSelection(method:"enter")}
+    else if code==48 {prepareTrainingSelection(method:"tab")}
+    else if let digit=Int(chars), (1...9).contains(digit) {prepareTrainingSelection(method:"digit",index:digit-1)}
+    if [51,117].contains(code), let client=c.client,
+       let probe=trainingCapture.correctionProbe(position:textPosition(client)) {
+      let generation=trainingGeneration
+      let owner=String(describing:ObjectIdentifier(client as AnyObject))
+      DispatchQueue.main.asyncAfter(deadline:.now()+0.1) { [weak self] in
+        guard let self,self.trainingEligible,self.trainingGeneration==generation,let live=self.controller?.client,
+              String(describing:ObjectIdentifier(live as AnyObject))==owner else {return}
+        let position=self.textPosition(live)
+        guard let base=position.base, base>=probe.range.location,base<NSMaxRange(probe.range),
+              !JevTextPosition.valid(position.marked) || position.marked.length==0 else {return}
+        let range=NSRange(location:probe.range.location,length:base-probe.range.location)
+        var actual=range
+        guard let text=live.string(from:range,actualRange:&actual),actual==range,
+              !text.utf16.elementsEqual(probe.text.utf16) else {return}
+        self.trainingCapture.corrected(ids:probe.ids)
+      }
+    }
+  }
+  private func observeTraining(candidates:[String],page:Int,prefix:String,displayCode:String,highlighted:Int) {
+    updateTrainingPolicy()
+    guard trainingEligible,let c=controller,!c.rimeAPI.get_option(c.session,"ascii_mode") else {return}
+    let raw=c.rimeAPI.get_input(c.session).map {String(cString:$0)} ?? ""
+    guard !raw.isEmpty else {trainingCapture.reset();return}
+    let data=property("_jev_snapshot").data(using:.utf8)
+    let snapshot=data.flatMap {try? JSONSerialization.jsonObject(with:$0) as? [String:Any]}
+    let rows=snapshot?["input"] as? String == raw ? snapshot?["candidates"] as? [[String:String]] ?? [] : []
+    let pinyin=snapshot?["pinyin"] as? String ?? raw
+    let environment=["app_version":Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "test",
+      "rime_schema":schema,"placement_policy":"first-preserved-v2","context_policy":"same-line-v1",
+      "enhancement_mode":enhancementMode,"dictionary_revision":"unavailable",
+      "protected_candidates":String(snapshot?["protected"] as? Bool ?? false)]
+    trainingCapture.observe(raw:raw,pinyin:pinyin,prefix:prefix,displayCode:displayCode,
+      abbreviated:JevCandidateWindow.limit(pinyin:pinyin,displayCode:displayCode,provider:"local")>8,
+      candidates:decodeRows(rows,limit:24),displayed:candidates,page:page,highlighted:highlighted,environment:environment)
+    guard trainingCapture.wantsContext,let token=trainingCapture.token else {return}
+    let generation=trainingGeneration
+    DispatchQueue.main.async { [weak self] in
+      guard let self,self.trainingEligible,self.trainingGeneration==generation,self.trainingCapture.token==token,
+            let context=self.captureContext(forTraining:true) else {return}
+      self.trainingCapture.context(context,token:token)
+    }
   }
   private func rebuildCoordinator() {
     let settings=JevSettings.current
@@ -462,8 +543,16 @@ final class JevInputAdapter {
           let bounded=JevDecisionRequest(id:request.id,state:request.state,candidates:request.candidates,
                                         maxAgeMilliseconds:min(request.maxAgeMilliseconds,remaining),provider:request.provider)
           self.requests += 1
+          let captureToken=self.trainingCapture.token
+          if let captureToken {self.trainingCapture.modelRequest(token:captureToken,provider:request.provider,modelCandidates:request.candidates,timeout:remaining)}
+          let began=ProcessInfo.processInfo.systemUptime
           return JevRuntimeManager.shared.send(bounded,provider:request.provider) { [weak self] response in
-            self?.responseStatus=response.status;completion(response)
+            if let self {
+              self.updateTrainingPolicy()
+              if let captureToken {self.trainingCapture.modelResponse(token:captureToken,response:response,elapsed:(ProcessInfo.processInfo.systemUptime-began)*1000)}
+              self.responseStatus=response.status
+            }
+            completion(response)
           }
         },onDecision:{ [weak self] decision in self?.apply(decision) })
       modelCoordinators[model]=value
@@ -486,7 +575,7 @@ final class JevInputAdapter {
     identity = ""; input = ""; confirmedPrefix=""; requestSnapshot=nil;requestStartedAt=nil; baseline = []; badges.removeAll(); modelChoices.removeAll()
     sortingLocked = false; committingLocked = false
     set("_jev_epoch", String(epoch)); set("_jev_result", "")
-    if clearContext { contextClears += 1; recentContext.reset(); pendingHostCommit=false; cache.removeAll(); focusGeneration &+= 1 }
+    if clearContext { trainingGeneration &+= 1;trainingCapture.detach();contextClears += 1; recentContext.reset(); pendingHostCommit=false; cache.removeAll(); focusGeneration &+= 1 }
   }
   func activate() {
     activations += 1;invalidate(clearContext:true);rebuildCoordinator()
@@ -517,6 +606,7 @@ final class JevInputAdapter {
   func commitLock() {sortingLocked=true;committingLocked=true;modelCoordinators.values.forEach {$0.lockCommit()}}
   func beforeEvent(_ event: NSEvent) {
     guard event.type == .keyDown else { return }
+    trainingEvent(event)
     if event.modifierFlags.contains(.command) { invalidate(clearContext: true); return }
     recentContext.noteActivity(now: ProcessInfo.processInfo.systemUptime)
     let chars = event.charactersIgnoringModifiers ?? ""
@@ -553,6 +643,8 @@ final class JevInputAdapter {
   }
   func willCommit(_ text: String) {
     commits += 1
+    updateTrainingPolicy()
+    if trainingEligible {trainingCapture.commit(text,position:controller?.client.map {textPosition($0)})}
     guard let client=controller?.client, let base=cursorBase(client) else {invalidate(clearContext:true);return}
     recentContext.commit(text,at:base,client:String(describing:ObjectIdentifier(client as AnyObject)),now:ProcessInfo.processInfo.systemUptime)
     pendingHostCommit=true
@@ -562,8 +654,8 @@ final class JevInputAdapter {
     JevTextPosition(client:String(describing:ObjectIdentifier(client as AnyObject)),
                     selected:client.selectedRange(),marked:client.markedRange())
   }
-  private func captureContext() -> JevLineSnapshot? {
-    guard eligible, let client=controller?.client else { return nil }
+  private func captureContext(forTraining:Bool=false) -> JevLineSnapshot? {
+    guard (forTraining ? trainingEligible : eligible), let client=controller?.client else { return nil }
     let started=ProcessInfo.processInfo.systemUptime
     let position=textPosition(client)
     let result=JevLineContext.resolve(position:position,confirmedPrefix:confirmedPrefix,read:{ range in
@@ -580,7 +672,7 @@ final class JevInputAdapter {
     contextReadMilliseconds=(ProcessInfo.processInfo.systemUptime-started)*1000
     maximumContextReadMilliseconds=max(maximumContextReadMilliseconds,contextReadMilliseconds)
     if contextReadMilliseconds > 50 { slowClient=position.client;slowUntil=ProcessInfo.processInfo.systemUptime+5 }
-    guard eligible, let current=controller?.client, textPosition(current)==position else {
+    guard (forTraining ? trainingEligible : eligible), let current=controller?.client, textPosition(current)==position else {
       lastContextReadReason="position_changed_during_read";return nil
     }
     lastContextSource=result.source;lastContextReadReason=result.readReason;resolvedContextLength=result.context.count
@@ -609,7 +701,7 @@ final class JevInputAdapter {
     if !self.schema.isEmpty && self.schema != schema { invalidate(clearContext: true) }
     self.schema=schema
   }
-  func afterRender(candidates: [String], page: Int, prefix: String, displayCode: String) {
+  func afterRender(candidates: [String], page: Int, prefix: String, displayCode: String, highlighted:Int=0) {
     lastReason="render"
     let previousPrefix=confirmedPrefix
     confirmedPrefix = prefix.unicodeScalars.allSatisfy { (0x3400...0x9fff).contains(Int($0.value)) } ? prefix : ""
@@ -617,6 +709,7 @@ final class JevInputAdapter {
       sortingLocked=false;committingLocked=false
     }
     visible = candidates; visiblePage = page
+    observeTraining(candidates:candidates,page:page,prefix:confirmedPrefix,displayCode:displayCode,highlighted:highlighted)
     guard !applying, let c = controller, eligible, !c.rimeAPI.get_option(c.session,"ascii_mode") else { lastReason="disabled_or_applying";return }
     let raw = c.rimeAPI.get_input(c.session).map { String(cString:$0) } ?? ""
     guard !raw.isEmpty else { invalidate(); return }
@@ -698,7 +791,7 @@ final class JevInputAdapter {
        requestSnapshot?.source != "no_context", let entry=cache[requestCacheKey],
        Date().timeIntervalSince(entry.created)<60, entry.count==list.count,
        entry.signature==Self.hex(list.map(\.key).joined(separator:"\n")), requestIsCurrent() {
-      installEntry(entry,raw:raw);lastReason="cached";return
+      installEntry(entry,raw:raw,cached:true);lastReason="cached";return
     }
     set("_jev_epoch",String(epoch))
     modelChoices.removeAll()
@@ -730,7 +823,7 @@ final class JevInputAdapter {
     let entry=CachedChoice(recommendations:entries,signature:Self.hex(baseline.map(\.key).joined(separator:"\n")),count:baseline.count,created:.now)
     installEntry(entry,raw:input)
   }
-  private func installEntry(_ entry:CachedChoice,raw:String) {
+  private func installEntry(_ entry:CachedChoice,raw:String,cached:Bool=false) {
     guard let c=controller else { return }
     let wire=placementWire(entry,raw:raw)
     applying=true;set("_jev_result",wire)
@@ -738,6 +831,7 @@ final class JevInputAdapter {
     if c.rimeAPI.get_context(c.session,&rebuilt) {_ = c.rimeAPI.free_context(&rebuilt)}
     if property("_jev_applied")==wire {
       installBadges(entry)
+      trainingCapture.applied(choices:entry.recommendations,cached:cached)
       if cache.count>=128,let oldest=cache.min(by:{$0.value.created<$1.value.created})?.key {cache.removeValue(forKey:oldest)}
       if activeProviders.count==1, confirmedPrefix.isEmpty, requestSnapshot?.position.base != nil,
          requestSnapshot?.source != "no_context" {cache[requestCacheKey]=entry}
@@ -802,6 +896,13 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
     retained?.showWindow(nil);NSApp.activate(ignoringOtherApps:true)
     retained?.refreshKeyStatus();retained?.refreshStatus()
   }
+  @objc private func showTraining() {
+    let currentApp=app
+    JevTrainingPreferences.show(settings:JevSettings.current.training ?? JevTrainingSettings(),currentApp:currentApp,
+      projectRoot:JevSettings.current.projectRoot) { value in
+        JevSettings.current.training=value;JevSettings.save();JevInputAdapter.reloadTraining()
+      }
+  }
   init(inputOwner:SquirrelInputController) {
     self.inputOwner=inputOwner
     let window=NSWindow(contentRect:NSRect(x:0,y:0,width:600,height:720),styleMask:[.titled,.closable,.miniaturizable],backing:.buffered,defer:false)
@@ -812,7 +913,9 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
     if let view=window.contentView {NSLayoutConstraint.activate([content.leadingAnchor.constraint(equalTo:view.leadingAnchor,constant:24),content.trailingAnchor.constraint(equalTo:view.trailingAnchor,constant:-24),content.topAnchor.constraint(equalTo:view.topAnchor,constant:24)])}
     func button(_ b:NSButton,_ title:String,_ action:Selector) {b.title=title;b.target=self;b.action=action;b.bezelStyle = .rounded}
     func row(_ views:[NSView])->NSStackView {let r=NSStackView(views:views);r.orientation = .horizontal;r.spacing=8;return r}
-    let title=NSTextField(labelWithString:"语境选词");title.font = .boldSystemFont(ofSize:20);content.addArrangedSubview(title)
+    let title=NSTextField(labelWithString:"语境选词");title.font = .boldSystemFont(ofSize:20)
+    let trainingButton=NSButton(title:"训练数据…",target:self,action:#selector(showTraining))
+    content.addArrangedSubview(row([title,trainingButton]))
     scope.addItems(withTitles:["所有应用默认设置","当前应用单独设置"])
     scope.target=self;scope.action=#selector(scopeChanged)
     button(follow,"跟随默认",#selector(followDefaults))

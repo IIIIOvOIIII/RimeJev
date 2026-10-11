@@ -52,7 +52,7 @@ record('released '+a.provider);Path(a.socket).unlink()
     extracted = fixture / 'RuntimeUnderTest.swift'
     extracted.write_text(source)
     executable = fixture / 'RuntimeLifecycleTests'
-    subprocess.run(['swiftc', '-parse-as-library', str(root / 'native/JevCore.swift'), str(root / 'native/JevKeychain.swift'), str(extracted),
+    subprocess.run(['swiftc', '-parse-as-library', str(root / 'native/JevCore.swift'), str(root / 'native/JevTrainingSettings.swift'), str(root / 'native/JevKeychain.swift'), str(extracted),
                     str(root / 'native/tests/JevRuntimeLifecycleTests.swift'), '-framework', 'AppKit',
                     '-framework', 'InputMethodKit', '-framework', 'Carbon', '-o', str(executable)], check=True, timeout=60)
     try:
