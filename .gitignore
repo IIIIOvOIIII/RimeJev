@@ -35,3 +35,6 @@ jev-budget.json
 *.rjcapture
 training-exports/
 TrainingData/
+
+# Encrypted atomic-compaction temporary files.
+.compact-*.tmp

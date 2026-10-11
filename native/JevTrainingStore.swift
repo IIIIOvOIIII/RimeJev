@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Compression
 import Security
 import LocalAuthentication
 import Darwin
@@ -10,15 +11,19 @@ struct JevTrainingStoreStatus {
     let written: Int
     let dropped: Int
     let bytes: Int64
+    let prunedFiles: Int
+    let reclaimedBytes: Int64
 }
 
 final class JevTrainingStore: @unchecked Sendable {
     static let shared = JevTrainingStore()
 
     private static let recordLimit = 128 * 1024
-    private static let rowLimit = ((recordLimit + 28 + 2) / 3) * 4 + 128
+    private static let rowLimit = ((recordLimit + 29 + 2) / 3) * 4 + 128
     private static let rotationBytes: Int64 = 8 * 1024 * 1024
+    private static let version2AAD = Data("RimeJev.capture.v2".utf8)
     private let keyProvider: (Bool) throws -> Data
+    private let now: () -> Date
     private let worker = DispatchQueue(label: "RimeJev.Training.Storage", qos: .utility)
     private let stateLock = NSLock()
     private let ioLock = NSLock()
@@ -31,17 +36,21 @@ final class JevTrainingStore: @unchecked Sendable {
     private var reason = "disabled"
     private var written = 0
     private var bytes: Int64 = 0
+    private var prunedFiles = 0
+    private var reclaimedBytes: Int64 = 0
 
     // OSAtomic supports the application's macOS 13 target. A separate counter
     // lets a contended submit fail immediately while still counting the drop.
     private let dropped = UnsafeMutablePointer<Int64>.allocate(capacity: 1)
 
     // Protected by ioLock; reset on every configuration generation.
+    private var checkedFiles: Set<String> = []
     private var key: SymmetricKey?
     private var directoryIdentity: Identity?
     private var activeFile: (name: String, day: String, identity: Identity)?
 
-    init(keyProvider: ((Bool) throws -> Data)? = nil) {
+    init(keyProvider: ((Bool) throws -> Data)? = nil, now: @escaping () -> Date = Date.init) {
+        self.now = now
         self.keyProvider = keyProvider ?? Self.keychainKey
         dropped.initialize(to: 0)
     }
@@ -80,6 +89,7 @@ final class JevTrainingStore: @unchecked Sendable {
         key = nil
         directoryIdentity = nil
         activeFile = nil
+        checkedFiles.removeAll()
         state = settings.enabled ? "ready" : "off"
         reason = settings.enabled ? "" : "disabled"
         if settings.enabled && (!Self.validPath(settings.directory) || settings.maximumBytes <= 0) {
@@ -114,7 +124,8 @@ final class JevTrainingStore: @unchecked Sendable {
         stateLock.lock()
         defer { stateLock.unlock() }
         return JevTrainingStoreStatus(state: state, reason: reason, written: written,
-                                      dropped: Int(OSAtomicAdd64Barrier(0, dropped)), bytes: bytes)
+                                      dropped: Int(OSAtomicAdd64Barrier(0, dropped)), bytes: bytes,
+                                      prunedFiles: prunedFiles, reclaimedBytes: reclaimedBytes)
     }
 
     /// Tests and offline workers only. Producers should stop before draining.
@@ -260,40 +271,37 @@ final class JevTrainingStore: @unchecked Sendable {
         guard directoryIdentity == nil || directoryIdentity == identity else { throw Failure.directoryChanged }
         directoryIdentity = identity
         guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { throw Failure.storageFailed }
-        let total = try Self.totalBytes(Self.entries(fd))
-        stateLock.lock()
-        if self.settings.directory == settings.directory { bytes = total }
-        stateLock.unlock()
-        // Compute the exact JSONL length before asking Keychain to create a key.
-        let placeholder = Envelope(schema_version: 1, sealed: String(repeating: "A", count: ((data.count + 30) / 3) * 4))
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        let expectedBytes = try encoder.encode(placeholder).count + 1
-        guard total <= settings.maximumBytes,
-              Int64(expectedBytes) <= settings.maximumBytes - total else { throw Failure.quotaExceeded }
+        var total = try Self.totalBytes(Self.entries(fd))
+        updateBytes(total, directory: settings.directory)
+        let packed = Self.pack(data)
+        let expectedBytes = try Self.encodedRowSize(packed.count)
+        // A single record must fit even an empty directory. Key/encryption must
+        // succeed before migration or irreversible retention removes anything.
+        guard Int64(expectedBytes) <= settings.maximumBytes else { throw Failure.quotaExceeded }
         if key == nil { key = try symmetricKey(createAllowed: total == 0) }
         guard isCurrent(generation) else { throw Failure.superseded }
         guard let key else { throw Failure.keyUnavailable }
-        let sealed: AES.GCM.SealedBox
-        do { sealed = try AES.GCM.seal(data, using: key, nonce: AES.GCM.Nonce()) }
-        catch { throw Failure.cryptoFailed }
-        guard let combined = sealed.combined else { throw Failure.cryptoFailed }
-        var row = try encoder.encode(Envelope(schema_version: 1, sealed: combined.base64EncodedString()))
-        row.append(0x0a)
+        let row = try Self.encryptedRow(packed, key: key)
         guard row.count == expectedBytes else { throw Failure.cryptoFailed }
-        // Validate the path again after a potentially slow Keychain operation.
-        let fresh = try Self.openDirectory(directory, create: false)
-        defer { close(fresh) }
-        guard Identity(try Self.directoryInfo(fresh)) == identity else { throw Failure.directoryChanged }
-        guard isCurrent(generation) else { throw Failure.superseded }
-        let day = Self.dayStamp()
+        try validateDirectory(directory, identity: identity, generation: generation)
+        let day = Self.dayStamp(now())
+        let segmentLimit = min(Self.rotationBytes, max(1, settings.maximumBytes / 10))
         if let active = activeFile {
             let info = try Self.entryInfo(fd, active.name)
             guard Identity(info) == active.identity else { throw Failure.unsafeFile }
-            if active.day != day || info.st_size + Int64(row.count) > Self.rotationBytes {
+            if active.day != day || info.st_size + Int64(row.count) > segmentLimit {
                 activeFile = nil
             }
         }
+        for file in try Self.entries(fd) where file.name != activeFile?.name &&
+            Self.captureDay(file.name) != nil && !checkedFiles.contains(file.name) {
+            try compact(file, in: fd, directory: directory, identity: identity, key: key, generation: generation)
+            checkedFiles.insert(file.name)
+        }
+        total = try Self.totalBytes(Self.entries(fd))
+        updateBytes(total, directory: settings.directory)
+        total = try makeRoom(for: Int64(row.count), total: total, in: fd, directory: directory,
+                             identity: identity, settings: settings, generation: generation)
         let output: Int32
         if let active = activeFile {
             output = openat(fd, active.name, O_WRONLY | O_APPEND | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
@@ -312,19 +320,147 @@ final class JevTrainingStore: @unchecked Sendable {
               info.st_mode & 0o777 == 0o600,
               flock(output, LOCK_EX | LOCK_NB) == 0 else { throw Failure.unsafeFile }
         guard isCurrent(generation) else { throw Failure.superseded }
-        try row.withUnsafeBytes { buffer in
+        try Self.writeAll(row, to: output)
+        stateLock.lock()
+        written += 1
+        if self.settings.directory == settings.directory { bytes = total + Int64(row.count) }
+        stateLock.unlock()
+    }
+
+    private func updateBytes(_ total: Int64, directory: String) {
+        stateLock.lock()
+        if settings.directory == directory { bytes = total }
+        stateLock.unlock()
+    }
+
+    private func validateDirectory(_ directory: URL, identity: Identity, generation: UInt64) throws {
+        let fresh = try Self.openDirectory(directory, create: false)
+        defer { close(fresh) }
+        guard Identity(try Self.directoryInfo(fresh)) == identity else { throw Failure.directoryChanged }
+        guard isCurrent(generation) else { throw Failure.superseded }
+    }
+
+    private func compact(_ file: (name: String, info: stat), in fd: Int32, directory: URL,
+                         identity: Identity, key: SymmetricKey, generation: UInt64) throws {
+        let input = openat(fd, file.name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+        guard input >= 0 else { throw Failure.readFailed }
+        defer { close(input) }
+        guard Identity(try Self.fileInfo(input)) == Identity(file.info),
+              flock(input, LOCK_EX | LOCK_NB) == 0 else { throw Failure.unsafeFile }
+        var prefix = [UInt8](repeating: 0, count: 64)
+        let count = Darwin.read(input, &prefix, prefix.count)
+        guard count >= 0, lseek(input, 0, SEEK_SET) == 0 else { throw Failure.readFailed }
+        if String(decoding: prefix.prefix(count), as: UTF8.self).hasPrefix("{\"schema_version\":2,") { return }
+        let temporary = ".compact-" + UUID().uuidString + ".tmp"
+        let output = openat(fd, temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard output >= 0 else { throw Failure.storageFailed }
+        defer { close(output); unlinkat(fd, temporary, 0) }
+        guard fchmod(output, 0o600) == 0 else { throw Failure.storageFailed }
+        do {
+            try Self.readRows(input, key: key) { data in
+                guard self.isCurrent(generation) else { throw Failure.superseded }
+                try Self.writeAll(Self.encryptedRow(Self.pack(data), key: key), to: output)
+            }
+        } catch let failure as ConsumerFailure { throw failure.underlying }
+        let size = try Self.fileInfo(output).st_size
+        // Do not replace an incompressible legacy file with a larger encoding.
+        guard size < file.info.st_size else { return }
+        var times = [file.info.st_atimespec, file.info.st_mtimespec]
+        guard futimens(output, &times) == 0, fsync(output) == 0 else { throw Failure.storageFailed }
+        try validateDirectory(directory, identity: identity, generation: generation)
+        guard Identity(try Self.entryInfo(fd, file.name)) == Identity(file.info) else { throw Failure.unsafeFile }
+        guard renameat(fd, temporary, fd, file.name) == 0 else { throw Failure.storageFailed }
+    }
+
+    private func makeRoom(for incoming: Int64, total: Int64, in fd: Int32, directory: URL,
+                          identity: Identity, settings: JevTrainingSettings, generation: UInt64) throws -> Int64 {
+        // Hysteresis prevents repeated tiny deletions around the user's limit.
+        let high = settings.maximumBytes - settings.maximumBytes / 10
+        let low = settings.maximumBytes - settings.maximumBytes / 5
+        var remaining = total
+        guard remaining >= high - incoming else { return remaining }
+        for file in try Self.entries(fd) where Self.captureDay(file.name) != nil {
+            if remaining <= low - incoming { break }
+            let input = openat(fd, file.name, O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK)
+            guard input >= 0 else { throw Failure.unsafeFile }
+            defer { close(input) }
+            guard Identity(try Self.fileInfo(input)) == Identity(file.info),
+                  flock(input, LOCK_EX | LOCK_NB) == 0 else { throw Failure.unsafeFile }
+            try validateDirectory(directory, identity: identity, generation: generation)
+            guard Identity(try Self.entryInfo(fd, file.name)) == Identity(file.info) else { throw Failure.unsafeFile }
+            guard unlinkat(fd, file.name, 0) == 0 else { throw Failure.storageFailed }
+            if activeFile?.name == file.name { activeFile = nil }
+            checkedFiles.remove(file.name)
+            remaining -= file.info.st_size
+            stateLock.lock()
+            prunedFiles += 1
+            reclaimedBytes += file.info.st_size
+            if self.settings.directory == settings.directory { bytes = remaining }
+            stateLock.unlock()
+        }
+        guard remaining <= settings.maximumBytes - incoming else { throw Failure.quotaExceeded }
+        return remaining
+    }
+
+    private static func writeAll(_ data: Data, to fd: Int32) throws {
+        try data.withUnsafeBytes { buffer in
             var offset = 0
             while offset < buffer.count {
-                let count = Darwin.write(output, buffer.baseAddress!.advanced(by: offset), buffer.count - offset)
+                let count = Darwin.write(fd, buffer.baseAddress!.advanced(by: offset), buffer.count - offset)
                 if count < 0 && errno == EINTR { continue }
                 guard count > 0 else { throw Failure.storageFailed }
                 offset += count
             }
         }
-        stateLock.lock()
-        written += 1
-        if self.settings.directory == settings.directory { bytes = total + Int64(row.count) }
-        stateLock.unlock()
+    }
+
+    private static func pack(_ data: Data) -> Data {
+        guard !data.isEmpty else { return Data([0]) }
+        var output = [UInt8](repeating: 0, count: data.count)
+        let count = data.withUnsafeBytes { raw in
+            compression_encode_buffer(&output, output.count, raw.bindMemory(to: UInt8.self).baseAddress!,
+                                      data.count, nil, COMPRESSION_LZFSE)
+        }
+        if count > 0 && count < data.count { return Data([1]) + Data(output.prefix(count)) }
+        return Data([0]) + data
+    }
+
+    private static func unpack(_ data: Data) throws -> Data {
+        guard let codec = data.first else { throw Failure.invalidEnvelope }
+        let payload = Data(data.dropFirst())
+        if codec == 0 {
+            guard payload.count <= recordLimit else { throw Failure.invalidEnvelope }
+            return payload
+        }
+        guard codec == 1, !payload.isEmpty else { throw Failure.invalidEnvelope }
+        // Decode into limit+1: Apple's API returns the full destination length
+        // when truncated. Never accept an oversized record as a valid prefix.
+        var output = [UInt8](repeating: 0, count: recordLimit + 1)
+        let count = payload.withUnsafeBytes { raw in
+            compression_decode_buffer(&output, output.count, raw.bindMemory(to: UInt8.self).baseAddress!,
+                                      payload.count, nil, COMPRESSION_LZFSE)
+        }
+        guard count > 0 && count <= recordLimit else { throw Failure.invalidEnvelope }
+        return Data(output.prefix(count))
+    }
+
+    private static func rowEncoder() -> JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        return encoder
+    }
+
+    private static func encodedRowSize(_ payloadSize: Int) throws -> Int {
+        let placeholder = Envelope(schema_version: 2, sealed: String(repeating: "A", count: ((payloadSize + 30) / 3) * 4))
+        return try rowEncoder().encode(placeholder).count + 1
+    }
+
+    private static func encryptedRow(_ payload: Data, key: SymmetricKey) throws -> Data {
+        let sealed: AES.GCM.SealedBox
+        do { sealed = try AES.GCM.seal(payload, using: key, nonce: AES.GCM.Nonce(), authenticating: version2AAD) }
+        catch { throw Failure.cryptoFailed }
+        guard let combined = sealed.combined else { throw Failure.cryptoFailed }
+        return try rowEncoder().encode(Envelope(schema_version: 2, sealed: combined.base64EncodedString())) + Data([0x0a])
     }
 
     private func symmetricKey(createAllowed: Bool) throws -> SymmetricKey {
@@ -473,7 +609,18 @@ final class JevTrainingStore: @unchecked Sendable {
             }
             if name.hasSuffix(".rjcapture") { result.append((name, try entryInfo(fd, name))) }
         }
-        return result.sorted { $0.name < $1.name }
+        return result.sorted {
+            let left = captureDay($0.name) ?? $0.name
+            let right = captureDay($1.name) ?? $1.name
+            if left != right { return left < right }
+            if $0.info.st_mtimespec.tv_sec != $1.info.st_mtimespec.tv_sec {
+                return $0.info.st_mtimespec.tv_sec < $1.info.st_mtimespec.tv_sec
+            }
+            if $0.info.st_mtimespec.tv_nsec != $1.info.st_mtimespec.tv_nsec {
+                return $0.info.st_mtimespec.tv_nsec < $1.info.st_mtimespec.tv_nsec
+            }
+            return $0.name < $1.name
+        }
     }
 
     private static func totalBytes(_ files: [(name: String, info: stat)]) throws -> Int64 {
@@ -486,12 +633,19 @@ final class JevTrainingStore: @unchecked Sendable {
         return total
     }
 
-    private static func dayStamp() -> String {
+    private static func captureDay(_ name: String) -> String? {
+        guard name.range(of: #"^capture-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}\.rjcapture$"#,
+                         options: .regularExpression) != nil else { return nil }
+        return String(name.dropFirst(8).prefix(10))
+    }
+
+    private static func dayStamp(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = .current
         formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
+        return formatter.string(from: date)
     }
 
     private static func readRows(_ fd: Int32, key: SymmetricKey, consume: (Data) throws -> Void) throws {
@@ -523,16 +677,18 @@ final class JevTrainingStore: @unchecked Sendable {
         do {
             envelope = try JSONDecoder().decode(Envelope.self, from: row)
             guard let object = try JSONSerialization.jsonObject(with: row) as? [String: Any],
-                  Set(object.keys) == ["schema_version", "sealed"], envelope.schema_version == 1 else {
+                  Set(object.keys) == ["schema_version", "sealed"], [1, 2].contains(envelope.schema_version) else {
                 throw Failure.invalidEnvelope
             }
         } catch { throw Failure.invalidEnvelope }
         guard let combined = Data(base64Encoded: envelope.sealed),
-              (28...(recordLimit + 28)).contains(combined.count) else { throw Failure.invalidEnvelope }
+              (28...(recordLimit + (envelope.schema_version == 2 ? 29 : 28))).contains(combined.count) else { throw Failure.invalidEnvelope }
         let plaintext: Data
-        do { plaintext = try AES.GCM.open(AES.GCM.SealedBox(combined: combined), using: key) }
+        do { plaintext = try AES.GCM.open(AES.GCM.SealedBox(combined: combined), using: key,
+                                          authenticating: envelope.schema_version == 2 ? version2AAD : Data()) }
         catch { throw Failure.authenticationFailed }
-        do { try consume(plaintext) }
+        let record = envelope.schema_version == 2 ? try unpack(plaintext) : plaintext
+        do { try consume(record) }
         catch { throw ConsumerFailure(underlying: error) }
     }
 

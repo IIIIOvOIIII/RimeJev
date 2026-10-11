@@ -1,5 +1,6 @@
 import Foundation
 import CryptoKit
+import Compression
 import Darwin
 
 private func expect(_ condition: @autoclosure () throws -> Bool, _ message: String) {
@@ -19,6 +20,113 @@ private func expectFailure(_ reason: String? = nil, _ operation: () throws -> Vo
 }
 
 private let syntheticKey = Data(repeating: 0x57, count: 32)
+private let version2AAD = Data("RimeJev.capture.v2".utf8)
+
+private final class FakeClock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var date: Date
+    init(_ date: Date) { self.date = date }
+    func now() -> Date {
+        lock.lock()
+        defer { lock.unlock() }
+        return date
+    }
+    func advance(to date: Date) {
+        lock.lock()
+        self.date = date
+        lock.unlock()
+    }
+}
+
+private func incompressibleRecord(_ count: Int = 128 * 1024, seed: UInt64 = 1) -> Data {
+    var state = seed
+    var data = Data()
+    while data.count < count {
+        state &+= 0x9e3779b97f4a7c15
+        var value = state
+        value = (value ^ (value >> 30)) &* 0xbf58476d1ce4e5b9
+        value = (value ^ (value >> 27)) &* 0x94d049bb133111eb
+        value ^= value >> 31
+        for shift in stride(from: 0, to: 64, by: 8) where data.count < count {
+            data.append(UInt8(truncatingIfNeeded: value >> shift))
+        }
+    }
+    return data
+}
+
+private func lzfse(_ data: Data) -> Data {
+    var output = [UInt8](repeating: 0, count: data.count + 4096)
+    let count = data.withUnsafeBytes { source in
+        output.withUnsafeMutableBufferPointer { destination in
+            compression_encode_buffer(destination.baseAddress!, destination.count,
+                                      source.bindMemory(to: UInt8.self).baseAddress!, source.count,
+                                      nil, COMPRESSION_LZFSE)
+        }
+    }
+    expect(count > 0, "fixture LZFSE compression succeeds")
+    return Data(output.prefix(count))
+}
+
+private func encryptedRow(_ payload: Data, schema: Int = 2) throws -> Data {
+    let sealed = try AES.GCM.seal(payload, using: SymmetricKey(data: syntheticKey),
+                                  authenticating: schema == 2 ? version2AAD : Data()).combined!
+    return try JSONSerialization.data(withJSONObject: ["schema_version": schema,
+                                                       "sealed": sealed.base64EncodedString()],
+                                      options: [.sortedKeys, .withoutEscapingSlashes]) + Data([0x0a])
+}
+
+private func openEnvelope(_ row: Data) throws -> (schema: Int, payload: Data) {
+    let object = try JSONSerialization.jsonObject(with: row) as! [String: Any]
+    expect(Set(object.keys) == ["schema_version", "sealed"], "only envelope fields persist")
+    let sealed = Data(base64Encoded: object["sealed"] as! String)!
+    return (object["schema_version"] as! Int,
+            try AES.GCM.open(AES.GCM.SealedBox(combined: sealed), using: SymmetricKey(data: syntheticKey),
+                             authenticating: object["schema_version"] as? Int == 2 ? version2AAD : Data()))
+}
+
+private func decodeV2Payload(_ payload: Data) -> Data {
+    expect(!payload.isEmpty, "v2 includes codec byte")
+    let encoded = Data(payload.dropFirst())
+    if payload.first == 0 { return encoded }
+    expect(payload.first == 1, "v2 uses raw or LZFSE codec")
+    var output = [UInt8](repeating: 0, count: 128 * 1024 + 1)
+    let count = encoded.withUnsafeBytes { source in
+        output.withUnsafeMutableBufferPointer { destination in
+            compression_decode_buffer(destination.baseAddress!, destination.count,
+                                      source.bindMemory(to: UInt8.self).baseAddress!, source.count,
+                                      nil, COMPRESSION_LZFSE)
+        }
+    }
+    expect(count > 0 && count <= 128 * 1024, "bounded independent LZFSE decode")
+    return Data(output.prefix(count))
+}
+
+private func writeCapture(_ directory: URL, name: String, rows: [Data], modified: Date? = nil) throws -> URL {
+    let file = directory.appendingPathComponent(name)
+    try rows.reduce(into: Data()) { $0.append($1) }.write(to: file)
+    var attributes: [FileAttributeKey: Any] = [.posixPermissions: 0o600]
+    if let modified { attributes[.modificationDate] = modified }
+    try FileManager.default.setAttributes(attributes, ofItemAtPath: file.path)
+    return file
+}
+
+private func captureName(_ day: String, uuid: String = UUID().uuidString) -> String {
+    "capture-\(day)-\(uuid).rjcapture"
+}
+
+private func localDay(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = .current
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: date)
+}
+
+private func fileStat(_ file: URL) -> stat {
+    var info = stat()
+    expect(lstat(file.path, &info) == 0, "fixture file stat")
+    return info
+}
 
 private final class FakeKey: @unchecked Sendable {
     private let lock = NSLock()
@@ -150,11 +258,12 @@ private func testRoundTripAndPermissions() throws {
     for line in lines {
         let object = try JSONSerialization.jsonObject(with: Data(line)) as! [String: Any]
         expect(Set(object.keys) == ["schema_version", "sealed"], "only envelope fields persist")
-        expect(object["schema_version"] as? Int == 1, "schema version")
+        expect(object["schema_version"] as? Int == 2, "schema version")
         let sealed = Data(base64Encoded: object["sealed"] as! String)!
         nonces.insert(sealed.prefix(12))
-        let plaintext = try AES.GCM.open(AES.GCM.SealedBox(combined: sealed), using: SymmetricKey(data: syntheticKey))
-        expect(plaintext == record, "standard AES-GCM combined representation")
+        let plaintext = try AES.GCM.open(AES.GCM.SealedBox(combined: sealed), using: SymmetricKey(data: syntheticKey),
+                                         authenticating: version2AAD)
+        expect(decodeV2Payload(plaintext) == record, "AES-GCM seals codec plus original record")
     }
     expect(nonces.count == 3, "fresh nonce for repeated plaintext")
     expect(try contents(store, fixture.data) == [record, record, record], "streaming roundtrip")
@@ -173,7 +282,7 @@ private func testMaximumRecordAndRotation() throws {
     expect(!store.submit(Data(repeating: 0x61, count: 128 * 1024 + 1)), "oversized record rejected")
     expect(!FileManager.default.fileExists(atPath: fixture.data.path), "oversized record triggers no IO")
     try fixture.mkdir(fixture.data)
-    let record = Data(repeating: 0x61, count: 128 * 1024)
+    let record = incompressibleRecord()
     for _ in 0..<52 {
         expect(store.submit(record), "maximum-size record accepted")
         store.drain()
@@ -190,6 +299,133 @@ private func testMaximumRecordAndRotation() throws {
         count += 1
     }
     expect(count == 52 && store.status().dropped == 1, "all boundary records survive rotation")
+}
+
+private func testCompressionSavingsAndRawFallback() throws {
+    let fixture = try Fixture()
+    let store = JevTrainingStore(keyProvider: { _ in syntheticKey })
+    configureAndDrain(store, fixture.settings())
+    let example = "{\"context\":\"汽车邮箱油箱\",\"pinyin\":\"youxiang\",\"candidate\":\"油箱\"}\n"
+    let repetitive = Data(String(repeating: example, count: 600).utf8)
+    let records = [repetitive, incompressibleRecord(4096), Data([0x57]), Data()]
+    for record in records {
+        expect(store.submit(record), "compression fixture accepted")
+        store.drain()
+    }
+    let file = try store.listFiles(in: fixture.data)[0]
+    let rows = try Data(contentsOf: file).split(separator: 0x0a).map(Data.init)
+    expect(rows.count == records.count, "one v2 row per original record")
+    for (index, row) in rows.enumerated() {
+        let envelope = try openEnvelope(row)
+        expect(envelope.schema == 2, "new writes use schema v2")
+        expect(envelope.payload.first == (index == 0 ? 1 : 0), "compress only when smaller; tiny/empty/raw fallback")
+        expect(decodeV2Payload(envelope.payload) == records[index], "independent codec roundtrip")
+    }
+    let uncompressed = try encryptedRow(Data([0]) + repetitive)
+    expect(rows[0].count * 4 < uncompressed.count, "repetitive capture uses less than a quarter of raw envelope bytes")
+    expect(try contents(store, fixture.data) == records, "store preserves compressed and raw record bytes")
+}
+
+private func testLocalDayRollover() throws {
+    let fixture = try Fixture()
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = .current
+    let midnight = calendar.date(from: DateComponents(year: 2026, month: 10, day: 11))!
+    let clock = FakeClock(midnight.addingTimeInterval(-1))
+    let store = JevTrainingStore(keyProvider: { _ in syntheticKey }, now: clock.now)
+    configureAndDrain(store, fixture.settings())
+    for value: UInt8 in [1, 2] {
+        expect(store.submit(Data([value])), "same local day accepted")
+        store.drain()
+    }
+    let previous = try store.listFiles(in: fixture.data)
+    expect(previous.count == 1, "same local day shares segment below threshold")
+    expect(previous[0].lastPathComponent.hasPrefix("capture-2026-10-10-"), "injected local date names first segment")
+    let before = try Data(contentsOf: previous[0])
+    clock.advance(to: midnight)
+    expect(store.submit(Data([3])), "midnight record accepted")
+    store.drain()
+    let files = try store.listFiles(in: fixture.data)
+    expect(files.count == 2, "local midnight rotates even a small segment")
+    let next = files.first { $0 != previous[0] }!
+    expect(next.lastPathComponent.hasPrefix("capture-2026-10-11-"), "new local day names next segment")
+    for file in files {
+        let name = file.deletingPathExtension().lastPathComponent
+        expect(file.pathExtension == "rjcapture" && UUID(uuidString: String(name.dropFirst(19))) != nil,
+               "capture day and UUID filename contract")
+    }
+    expect(try Data(contentsOf: previous[0]) == before, "rollover leaves closed segment untouched")
+    expect(try contents(store, fixture.data) == [Data([1]), Data([2]), Data([3])], "day rollover preserves export records")
+}
+
+private func testQuotaScaledRotation() throws {
+    let fixture = try Fixture()
+    let store = JevTrainingStore(keyProvider: { _ in syntheticKey })
+    let record = incompressibleRecord(4096)
+    let rowBytes = try encryptedRow(Data([0]) + record).count
+    var settings = fixture.settings()
+    settings.maximumBytes = Int64(rowBytes * 25)
+    configureAndDrain(store, settings)
+    for _ in 0..<5 {
+        expect(store.submit(record), "quota-scaled segment fixture")
+        store.drain()
+    }
+    let files = try store.listFiles(in: fixture.data)
+    expect(files.count == 3, "maximumBytes/10 rotates after two rows")
+    for file in files {
+        expect(Int64(try Data(contentsOf: file).count) <= settings.maximumBytes / 10,
+               "multi-record segments remain below configured threshold")
+    }
+    expect(try contents(store, fixture.data) == Array(repeating: record, count: 5), "scaled rotation preserves records")
+}
+
+private func testLegacyMixedReadAndEnabledMigration() throws {
+    let fixture = try Fixture()
+    let fake = FakeKey()
+    let store = JevTrainingStore(keyProvider: fake.provide)
+    let repeated = Data(String(repeating: "{\"context\":\"汽车油箱\",\"pinyin\":\"youxiang\"}\n", count: 400).utf8)
+    let random = incompressibleRecord(4096)
+    let raw = Data("synthetic-private-raw-v2".utf8)
+    let oldTime = Date(timeIntervalSince1970: 1_600_000_000.25)
+    let legacy = try writeCapture(fixture.data, name: captureName("2020-09-13"),
+                                  rows: [encryptedRow(repeated, schema: 1)], modified: oldTime)
+    let uncompressible = try writeCapture(fixture.data, name: captureName("2020-09-14"),
+                                          rows: [encryptedRow(random, schema: 1)], modified: oldTime)
+    let mixed = try writeCapture(fixture.data, name: captureName("2020-09-15"),
+                                 rows: [encryptedRow(repeated, schema: 1), encryptedRow(Data([0]) + raw),
+                                        encryptedRow(Data([1]) + lzfse(repeated))], modified: oldTime)
+    let originals = try [legacy, uncompressible, mixed].map { try Data(contentsOf: $0) }
+    let beforeInfo = fileStat(legacy)
+    let expected = [repeated, random, repeated, raw, repeated]
+    expect(try contents(store, fixture.data) == expected, "v1 plus raw/compressed v2 read while disabled")
+    expect(fake.flags == [false] && store.status().state == "off", "read-only path uses injected existing key")
+    configureAndDrain(store, fixture.settings())
+    expect(fake.flags == [false], "enable alone does not migrate or fetch key")
+    for (file, original) in zip([legacy, uncompressible, mixed], originals) {
+        expect(try Data(contentsOf: file) == original, "off/read/enable preserve old file bytes")
+    }
+    let oldHandle = try FileHandle(forReadingFrom: legacy)
+    defer { try? oldHandle.close() }
+    let latest = Data("synthetic-private-new".utf8)
+    expect(store.submit(latest), "first enabled write triggers migration")
+    store.drain()
+    expect(store.status().state == "ready" && store.status().written == 1, "migration is not a new capture event")
+    let migrated = try Data(contentsOf: legacy)
+    expect(migrated.count < originals[0].count / 4, "same-path legacy replacement achieves compression savings")
+    let envelope = try openEnvelope(migrated)
+    expect(envelope.schema == 2 && envelope.payload.first == 1, "compressible v1 migrates to compressed v2")
+    expect(decodeV2Payload(envelope.payload) == repeated, "migration preserves original payload")
+    let afterInfo = fileStat(legacy)
+    expect(afterInfo.st_ino != beforeInfo.st_ino, "migration replaces closed file atomically")
+    expect(afterInfo.st_mtimespec.tv_sec == beforeInfo.st_mtimespec.tv_sec &&
+           afterInfo.st_mtimespec.tv_nsec == beforeInfo.st_mtimespec.tv_nsec, "migration preserves retention mtime")
+    expect(try oldHandle.readToEnd() == originals[0], "open original inode retains complete legacy content")
+    expect(try fileMode(legacy) == 0o600, "migration preserves private file mode")
+    expect(try Data(contentsOf: uncompressible) == originals[1], "larger replacement leaves incompressible v1 unchanged")
+    expect(try contents(store, fixture.data) == expected + [latest], "mixed export semantics survive migration")
+    let names = try FileManager.default.contentsOfDirectory(atPath: fixture.data.path)
+    expect(names.count == 4 && names.allSatisfy { $0.hasSuffix(".rjcapture") }, "migration leaves same paths and no temp files")
+    expect(fake.flags.allSatisfy { !$0 }, "existing capture migration never requests replacement key")
 }
 
 private func testBoundedQueue() throws {
@@ -271,8 +507,158 @@ private func testQuotaAndRecovery() throws {
     configureAndDrain(store, configuration)
     expect(store.submit(Data([2])), "reopen quota checked by worker")
     store.drain()
-    expect(store.status().reason == "quota_exceeded" && store.status().bytes == used, "existing files count toward quota")
-    expect(try contents(store, fixture.data) == [Data([1])], "quota preserves existing data")
+    expect(store.status().state == "ready" && store.status().bytes == used, "full quota prunes oldest and continues")
+    expect(try contents(store, fixture.data) == [Data([2])], "newest record survives retention")
+    expect(used > configuration.maximumBytes / 10, "single row may exceed segment threshold while fitting quota")
+    for value: UInt8 in [3, 4] {
+        expect(store.submit(Data([value])), "active segment can be retired to fit next record")
+        store.drain()
+        expect(store.status().state == "ready" && store.status().bytes <= configuration.maximumBytes,
+               "retention never exceeds actual quota")
+        expect(try contents(store, fixture.data) == [Data([value])], "active-file retention always keeps newest record")
+    }
+}
+
+private func testRetentionOrderingAndHysteresis() throws {
+    let today = Date(timeIntervalSince1970: 1_791_734_400)
+    let stamp = localDay(today)
+    for ordering in ["day", "mtime-seconds", "mtime-nanoseconds", "filename-tie"] {
+        let fixture = try Fixture()
+        let store = JevTrainingStore(keyProvider: { _ in syntheticKey }, now: { today })
+        let records = (0..<9).map { incompressibleRecord(4096, seed: UInt64($0 + 1)) }
+        let rows = try records.map { try encryptedRow(Data([0]) + $0) }
+        expect(Set(rows.map(\.count)).count == 1, "retention fixture rows have equal envelope lengths")
+        var files: [URL] = []
+        for index in 0..<8 {
+            let uuid = String(format: "%08X-1111-4222-8333-444444444444", 8 - index)
+            let day = ordering == "day" ? String(format: "2020-09-%02d", 13 + index) : stamp
+            let offset: TimeInterval
+            switch ordering {
+            case "day": offset = Double(8 - index)
+            case "mtime-seconds": offset = Double(index)
+            case "mtime-nanoseconds": offset = Double(index) / 16
+            default: offset = 0
+            }
+            files.append(try writeCapture(fixture.data, name: captureName(day, uuid: uuid), rows: [rows[index]],
+                                          modified: Date(timeIntervalSince1970: 1_600_000_000 + offset)))
+        }
+        let oldest = ordering == "filename-tie" ? files[7] : files[0]
+        if ordering == "mtime-nanoseconds" {
+            expect(fileStat(files[0]).st_mtimespec.tv_sec == fileStat(files[1]).st_mtimespec.tv_sec &&
+                   fileStat(files[0]).st_mtimespec.tv_nsec < fileStat(files[1]).st_mtimespec.tv_nsec,
+                   "fixture distinguishes nanoseconds within the same second")
+        }
+        var settings = fixture.settings()
+        settings.maximumBytes = Int64(rows[0].count * 10)
+        configureAndDrain(store, settings)
+        expect(try store.listFiles(in: fixture.data).count == 8, "80 percent usage is untouched before append")
+        expect(store.submit(records[8]), "90 percent projected usage accepts incoming record")
+        store.drain()
+        expect(store.status().state == "ready", "retention completes for \(ordering)")
+        expect(!FileManager.default.fileExists(atPath: oldest.path), "oldest deletion uses \(ordering)")
+        for (index, file) in files.enumerated() where file != oldest {
+            expect(try Data(contentsOf: file) == rows[index], "retention preserves newer encrypted segments")
+        }
+        expect(store.status().bytes == settings.maximumBytes * 8 / 10, "retention stops at 80 percent including new row")
+        let retained = try contents(store, fixture.data)
+        expect(retained.count == 8 && retained.contains(records[8]), "newest record remains readable after pruning")
+        expect(!retained.contains(records[files.firstIndex(of: oldest)!]), "only oldest record removed")
+    }
+}
+
+private func testRetentionPreservesUnrelatedFiles() throws {
+    let fixture = try Fixture()
+    let store = JevTrainingStore(keyProvider: { _ in syntheticKey })
+    let record = incompressibleRecord(4096)
+    let row = try encryptedRow(Data([0]) + record)
+    let names = ["notes.rjcapture", "capture-2020-09-13-not-a-uuid.rjcapture",
+                 "capture-2020-9-13-11111111-1111-4111-8111-111111111111.rjcapture",
+                 "copy-capture-2020-09-13-11111111-1111-4111-8111-111111111111.rjcapture"]
+    var unrelated: [URL] = []
+    for name in names { unrelated.append(try writeCapture(fixture.data, name: name, rows: [row])) }
+    let note = fixture.data.appendingPathComponent("keep.txt")
+    try Data("synthetic-private-unrelated".utf8).write(to: note)
+    let old = try writeCapture(fixture.data, name: captureName("2020-09-13"), rows: Array(repeating: row, count: 4))
+    var settings = fixture.settings()
+    settings.maximumBytes = Int64(row.count * 10)
+    configureAndDrain(store, settings)
+    expect(store.submit(record), "retention with unrelated files accepts newest")
+    store.drain()
+    expect(store.status().state == "ready" && !FileManager.default.fileExists(atPath: old.path),
+           "only strictly generated segment is eligible for retention")
+    for file in unrelated { expect(try Data(contentsOf: file) == row, "lookalike capture filename preserved") }
+    expect(try Data(contentsOf: note) == Data("synthetic-private-unrelated".utf8), "unrelated extension preserved")
+
+    settings.maximumBytes = Int64(row.count * 3)
+    configureAndDrain(store, settings)
+    expect(store.submit(record), "excess unrelated bytes assessed asynchronously")
+    store.drain()
+    expect(store.status().reason == "quota_exceeded", "quota still enforced when no eligible files remain")
+    for file in unrelated { expect(try Data(contentsOf: file) == row, "quota failure never deletes unrelated captures") }
+}
+
+private func testKeyFailureCannotPruneOrMigrate() throws {
+    for fake in [FakeKey(fail: true), FakeKey(value: Data(repeating: 0, count: 31))] {
+        let fixture = try Fixture()
+        let record = incompressibleRecord(4096)
+        let legacy = try encryptedRow(record, schema: 1)
+        let file = try writeCapture(fixture.data, name: captureName("2020-09-13"), rows: [legacy])
+        let originalInfo = fileStat(file)
+        let store = JevTrainingStore(keyProvider: fake.provide)
+        var settings = fixture.settings()
+        settings.maximumBytes = Int64(try encryptedRow(Data([0]) + record).count)
+        configureAndDrain(store, settings)
+        expect(store.submit(record), "key failure before required retention is asynchronous")
+        store.drain()
+        expect(store.status().reason == "key_unavailable" && store.status().written == 0, "missing or invalid key pauses safely")
+        expect(fake.flags == [false], "old captures prohibit key creation")
+        expect(try Data(contentsOf: file) == legacy && fileStat(file).st_ino == originalInfo.st_ino,
+               "failed key leaves old capture unchanged before migration/deletion")
+        expect(try FileManager.default.contentsOfDirectory(atPath: fixture.data.path) == [file.lastPathComponent],
+               "failed key creates no replacement or temporary file")
+    }
+}
+
+private func testRetentionRechecksGenerationAndPath() throws {
+    for replacePath in [false, true] {
+        let fixture = try Fixture()
+        let record = incompressibleRecord(4096)
+        let legacy = try encryptedRow(record, schema: 1)
+        let file = try writeCapture(fixture.data, name: captureName("2020-09-13"), rows: [legacy])
+        let fake = FakeKey(blocked: true)
+        let store = JevTrainingStore(keyProvider: fake.provide)
+        var settings = fixture.settings()
+        settings.maximumBytes = Int64(try encryptedRow(Data([0]) + record).count)
+        configureAndDrain(store, settings)
+        expect(store.submit(record), "retention waits for injected key")
+        fake.waitUntilEntered()
+        expect(try Data(contentsOf: file) == legacy, "key wait cannot prune old capture")
+        let moved = fixture.root.appendingPathComponent("moved")
+        if replacePath {
+            try FileManager.default.moveItem(at: fixture.data, to: moved)
+            try fixture.mkdir(fixture.data)
+        } else {
+            settings.enabled = false
+            let start = DispatchTime.now().uptimeNanoseconds
+            store.configure(settings)
+            expect(DispatchTime.now().uptimeNanoseconds - start < 250_000_000, "disable remains nonblocking before retention")
+            expect(store.status().state == "stopping", "disable awaits worker quiescence")
+        }
+        fake.unblock()
+        store.drain()
+        let original = replacePath ? moved.appendingPathComponent(file.lastPathComponent) : file
+        expect(try Data(contentsOf: original) == legacy, "stale generation/path cannot migrate or prune old file")
+        expect(store.status().written == 0, "stale pending row is never written")
+        if replacePath {
+            expect(store.status().reason == "directory_changed", "replacement directory detected after key wait")
+            expect(try FileManager.default.contentsOfDirectory(atPath: fixture.data.path).isEmpty, "replacement directory untouched")
+        } else {
+            expect(store.status().state == "off", "disable acknowledges quiescence after worker finishes")
+            expect(!store.submit(record), "disabled store refuses further retention work")
+            store.drain()
+            expect(try Data(contentsOf: file) == legacy, "off remains quiescent after rejected submission")
+        }
+    }
 }
 
 private func testIdenticalConfigurationAndLatestWins() throws {
@@ -480,9 +866,13 @@ private func testTamperAndReaderValidation() throws {
     var tampered = object
     tampered["sealed"] = sealed.base64EncodedString()
     let tamperedRow = try JSONSerialization.data(withJSONObject: tampered) + Data([0x0a])
+    var downgraded = object
+    downgraded["schema_version"] = 1
+    let downgradedRow = try JSONSerialization.data(withJSONObject: downgraded) + Data([0x0a])
     let variants: [(Data, String)] = [
         (tamperedRow, "authentication_failed"),
-        (Data("{\"schema_version\":2,\"sealed\":\"AA==\"}\n".utf8), "invalid_envelope"),
+        (downgradedRow, "authentication_failed"),
+        (Data("{\"schema_version\":3,\"sealed\":\"AA==\"}\n".utf8), "invalid_envelope"),
         (Data("{\"schema_version\":true,\"sealed\":\"AA==\"}\n".utf8), "invalid_envelope"),
         (Data("{\"schema_version\":1,\"sealed\":\"***\"}\n".utf8), "invalid_envelope"),
         (Data("{\"schema_version\":1,\"sealed\":\"AA==\",\"extra\":1}\n".utf8), "invalid_envelope"),
@@ -515,6 +905,46 @@ private func testTamperAndReaderValidation() throws {
         try store.readRecords(in: fixture.data) { _ in verifiedRecords += 1 }
     }
     expect(verifiedRecords == 1, "reader streams verified records and stops at corrupt row")
+}
+
+private func testMalformedCodecAndBoundedDecode() throws {
+    let fixture = try Fixture()
+    let store = JevTrainingStore(keyProvider: { _ in syntheticKey })
+    let limit = 128 * 1024
+    let boundary = Data(String(repeating: "{\"pinyin\":\"youxiang\",\"text\":\"油箱\"}\n", count: 4000).utf8.prefix(limit))
+    expect(boundary.count == limit, "compressed boundary fixture reaches record limit")
+    let valid = try encryptedRow(Data([1]) + lzfse(boundary))
+    let file = try writeCapture(fixture.data, name: captureName("2020-09-13"), rows: [valid])
+    expect(try contents(store, fixture.data) == [boundary], "compressed record exactly at decode limit accepted")
+    let compressed = lzfse(boundary)
+    let invalidPayloads: [(String, Data)] = [
+        ("missing codec", Data()),
+        ("unknown codec", Data([2, 1, 2, 3])),
+        ("empty compressed stream", Data([1])),
+        ("malformed LZFSE", Data([1, 0xde, 0xad, 0xbe, 0xef])),
+        ("truncated LZFSE", Data([1]) + Data(compressed.prefix(compressed.count / 2))),
+        ("raw exceeds limit", Data([0]) + boundary + Data([1])),
+        ("compressed exceeds limit by one", Data([1]) + lzfse(boundary + Data([1]))),
+        ("compressed expansion far above limit", Data([1]) + lzfse(boundary + boundary))
+    ]
+    for (name, payload) in invalidPayloads {
+        let invalid = try encryptedRow(payload)
+        try (valid + invalid).write(to: file)
+        configureAndDrain(store, fixture.settings())
+        var seen: [Data] = []
+        expectFailure("invalid_envelope") { try store.readRecords(in: fixture.data) { seen.append($0) } }
+        expect(seen == [boundary], "\(name) never yields partial or malformed record")
+        expect(store.status().state == "paused", "\(name) pauses enabled capture")
+        expect(try Data(contentsOf: file) == valid + invalid, "decode failure preserves encrypted evidence")
+    }
+    let oversizedV1 = try encryptedRow(boundary + Data([1]), schema: 1)
+    try oversizedV1.write(to: file)
+    expectFailure("invalid_envelope") { _ = try contents(store, fixture.data) }
+    let legacy = try encryptedRow(Data("synthetic-private-legacy".utf8), schema: 1)
+    var upgraded = try JSONSerialization.jsonObject(with: legacy) as! [String: Any]
+    upgraded["schema_version"] = 2
+    try (JSONSerialization.data(withJSONObject: upgraded) + Data([0x0a])).write(to: file)
+    expectFailure("authentication_failed") { _ = try contents(store, fixture.data) }
 }
 
 private func testConsumerCancellationPreservesErrorAndStatus() throws {
@@ -600,17 +1030,26 @@ private struct JevTrainingStoreTests {
                 let tests: [(String, () throws -> Void)] = [
                     ("disabled/no IO", testDisabledHasNoIO),
                     ("roundtrip/nonce/permissions", testRoundTripAndPermissions),
+                    ("compression savings/raw fallback", testCompressionSavingsAndRawFallback),
                     ("record boundary/rotation", testMaximumRecordAndRotation),
+                    ("local day rollover/injected clock", testLocalDayRollover),
+                    ("quota-scaled segment rotation", testQuotaScaledRotation),
+                    ("legacy/mixed read and lazy atomic migration", testLegacyMixedReadAndEnabledMigration),
                     ("nonblocking/bounded queue", testBoundedQueue),
                     ("disable/configuration races", testDisableRaceAndGeneration),
                     ("identical configuration/latest generation", testIdenticalConfigurationAndLatestWins),
                     ("quota/recovery", testQuotaAndRecovery),
+                    ("retention day/mtime/tie ordering and hysteresis", testRetentionOrderingAndHysteresis),
+                    ("retention preserves unrelated filenames", testRetentionPreservesUnrelatedFiles),
+                    ("failed key preserves old captures", testKeyFailureCannotPruneOrMigrate),
+                    ("retention generation/path checks and quiescent disable", testRetentionRechecksGenerationAndPath),
                     ("paths/disappearance/replacement", testInvalidPathsAndDisappearance),
                     ("custom directory missing before first submit", testCustomDirectoryDeletedBeforeFirstSubmit),
                     ("symlinks/hardlinks/trash boundaries", testSymlinksHardlinksAndOwnership),
                     ("custom permissions/write failure", testExistingDirectoryAndWriteFailure),
                     ("key failures", testKeyFailures),
                     ("tamper/streaming schema validation", testTamperAndReaderValidation),
+                    ("codec validation and bounded decompression", testMalformedCodecAndBoundedDecode),
                     ("consumer sentinel/cancellation propagation", testConsumerCancellationPreservesErrorAndStatus),
                     ("lifecycle/reopen", testLifecycle)
                 ]

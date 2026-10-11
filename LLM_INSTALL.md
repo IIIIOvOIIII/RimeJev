@@ -1,4 +1,4 @@
-# LLM_INSTALL — RimeJev 0.5.0
+# LLM_INSTALL — RimeJev 0.5.1
 
 This is the dedicated installation contract for an LLM helping a user. 中文：这是提供给安装助手的独立指引；先检查、备份、验证，再安装，不能把构建成功当成真实输入验收。
 
@@ -31,7 +31,7 @@ If these are missing, stop the dependent step and explain what is missing. Use o
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout v0.5.0
+git checkout feat/training-retention
 git rev-parse HEAD  # Record and retain the exact reviewed revision used for installation.
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
@@ -39,7 +39,7 @@ bash scripts/bootstrap_dev.sh
 
 If the checkout already exists, inspect it first, preserve local changes, and explicitly select the requested release. Do not use a floating `git pull` as an install step.
 
-Use `v0.5.0` for this guide and record its resolved commit from `git rev-parse HEAD` in the local installation report. This release includes the 0.4.2 current-line context changes and 0.5.0 encrypted capture. The runtime was verified locally at `7cdde9e6ad3cc4375110d241b6bbfc3bec8a131b`; later release changes are Markdown only. That historical receipt does not authorize installation on another machine or from the release commit: run the exact-source preflight below for the selected checkout.
+This guide follows the 0.5.1 `feat/training-retention` development branch. Fetch it explicitly and record the resolved commit from `git rev-parse HEAD` in the local installation report. Run preflight against that exact checkout. For a formal 0.5.0 installation, use the `v0.5.0` tag and the guide in that tag. Never reuse another revision's preflight receipt.
 
 The bootstrap uses upstream Squirrel commit `876adebaf2f612951dcdca8a591de65401222b9a` under ignored `work/upstream/squirrel`. It must not force-reset an existing different checkout. The native builder pins librime headers to `a251145d3aafa33871824a40bbec04c966bd8b56` and Sparkle source metadata to `41847a58cdef7506b257591fcca6f9495df591d4`.
 
@@ -156,6 +156,8 @@ The post-install check verifies bundle name/ID, signature, binary receipt, deplo
 
 Capture is independent of enhancement and starts off with an empty selected-app list. Its suggested directory is `~/Library/Application Support/Rime-Jev/TrainingData`; the user can select another directory and either included or excluded applications. Do not enable it globally or in normal user applications as an installation test. The installer initializes missing capture settings to off and preserves existing path/scope choices, enhancement profiles and credentials. Verify off for a fresh/default-off installation, the directory selector and app controls, and no unexpected capture files. On an existing installation, preserve any explicitly chosen capture state instead of resetting it solely to match the default.
 
+0.5.1 compresses before encryption and groups files by local calendar day. At projected 90% of the configured quota it permanently deletes oldest managed capture files toward 80%, rather than pausing new writes. This automatic cleanup does not use Trash; the UI explains it. Enabled writes can atomically compact older files while preserving their records. Off/read-only operations do not compact or prune. Use disposable synthetic storage for retention tests; never lower the user's real quota to force deletion. Preserve current capture state/path/scope and the Keychain key during upgrades.
+
 For an explicitly authorized synthetic acceptance test, use only the dedicated test app and a disposable user-selected directory. Restore off afterwards and remove temporary application/path choices. Never retrieve or print the separate capture encryption key. Automated tests inject their own synthetic key and never touch the real Keychain. Preview/export/deletion close capture first and leave it closed. A local tokenizer is optional for records/sft export; instruction export requires a compatible locally supplied tokenizer and passes token-length/answer-boundary checks. Do not start training or upload records during installation.
 
 See [TRAINING_CAPTURE.md](docs/TRAINING_CAPTURE.md) for data format and privacy boundaries.
@@ -192,6 +194,6 @@ The installed executable accepts `--status`; it asynchronously writes `~/Library
 bash scripts/deploy.sh --rollback
 ```
 
-Rollback disables this project's input source and selects the original Squirrel source, retaining RimeJev data for recovery. Verify the original source is available first. Do not delete later-learned user data or overwrite it with an old backup. Destructive cleanup is separate from rollback.
+Rollback disables this project's input source and selects the original Squirrel source, retaining RimeJev data for recovery. Verify the original source is available first. Do not delete later-learned user data or overwrite it with an old backup. Destructive cleanup is separate from rollback. 0.5.0 cannot decode 0.5.1 compressed envelopes; retain those captures for a 0.5.1-or-newer reader or explicitly export needed records before downgrading. Do not delete captures or the encryption key to make rollback appear successful.
 
 Report the exact source revision/version, build and install checks, actual typing result, remaining limitations, and backup location. Distinguish source tests, installation checks, model choice, and user-visible acceptance. Do not claim universal application compatibility or a production-signed installer.

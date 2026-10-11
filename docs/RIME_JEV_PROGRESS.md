@@ -147,3 +147,19 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Package boundary: all 114 tracked paths and source-archive entries were inspected; only documented synthetic evaluation/test fixtures are included. All 19 existing commits passed the credential scan, and 235 historical blobs contain no private-machine metadata or binaries. Collected records, exports, personal dictionaries, credentials, local settings, binaries, models and backups remain outside the release.
 - Publication target: [GitHub v0.5.0](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.0). Main and the annotated tag will identify the same release commit. Final scan and remote verification receipts remain in ignored local evidence.
 - Next step: complete the final Git-history credential scan, fast-forward main, create the source-only release, and verify remote refs and published documentation. The installed 0.5.0 runtime needs no reinstall.
+
+## 2026-10-11 — 0.5.1 daily compression and rolling retention (approved)
+
+- Current work: add compressed-before-encryption daily capture files and oldest-first cleanup at the configured quota, then local deployment.
+- Expected result: keep newest input without pausing at normal capacity pressure; preserve capture consent, selected path/apps and all enhancement settings.
+- Policy: local calendar-day files, LZFSE payload compression before AES-GCM, read compatibility with 0.5.0; projected 90% quota triggers permanent oldest-file cleanup toward 80%. Manual deletion still uses Trash. Existing closed legacy files are compacted atomically when capture next writes; disabled/read-only operations do not migrate/delete.
+- Scope/budget: storage/UI/docs and meaningful synthetic storage/pipeline tests; full exact-source preflight and local smoke. No real private-data test collection or training, no formal main merge/release. Target one focused development/deployment pass; max five recovery attempts per failure class.
+- Result: clean v0.5.0 baseline 79e1d88 inspected; implementation in progress.
+- Next: implement and test compression, migration, retention and compatibility, then deploy and verify settings preserved.
+
+### 2026-10-12 — isolated storage and export verification
+
+- Current work: implemented compressed-before-encryption v2 envelopes, local-day/size rotation, atomic legacy compaction and 90%→80% oldest-first retention; UI describes permanent cleanup and shows reclaimed space.
+- Expected result: smaller encrypted files, continued writes under quota pressure, preserved legacy records and private boundaries.
+- Result: achieved in isolated tests. All 24 storage suites and the three actual capture/storage/export pipelines passed. Schema AAD, bounded decompression, legacy compatibility, migration failure preservation, date/mtime ordering, key/path/configuration races and unrelated-file retention are covered. Source typecheck passed. No user data or real key was used by these tests.
+- Next step: final review, exact-source full preflight, local deployment, running-version/settings/UI verification. The live capture switch is off and its existing settings have been backed up.

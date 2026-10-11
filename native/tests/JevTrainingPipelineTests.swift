@@ -110,7 +110,7 @@ private enum JevTrainingPipelineTests {
             for line in ciphertext.split(separator: 0x0a) {
                 guard let envelope = try JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
                       Set(envelope.keys) == ["schema_version", "sealed"],
-                      envelope["schema_version"] as? Int == 1,
+                      envelope["schema_version"] as? Int == 2,
                       let sealed = envelope["sealed"] as? String,
                       let bytes = Data(base64Encoded: sealed), bytes.count > 28 else {
                     throw PipelineFailure(reason: "capture is not an encrypted envelope")

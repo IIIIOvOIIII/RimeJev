@@ -200,7 +200,7 @@ final class JevTrainingPreferences: NSWindowController, NSTableViewDataSource, N
     maximum.widthAnchor.constraint(equalToConstant: 110).isActive = true
     maximum.setAccessibilityLabel("容量上限，单位 MB")
     add(row([NSTextField(labelWithString: "容量上限"), maximum, NSTextField(labelWithString: "MB")]))
-    label("1–102400 MB（100 GB；1 MB = 1024² 字节）。达到上限后停止写入。")
+    label("1–102400 MB（100 GB；1 MB = 1024² 字节）。按本机日期分文件，先压缩再加密。预计达到 90% 时永久清理最旧文件至约 80%，继续保存新记录；自动清理不进入废纸篓。")
     heading("本地分词器（可选）")
     tokenizer.isSelectable = true; tokenizer.setAccessibilityLabel("本地分词器路径"); add(tokenizer)
     add(row([button("选择分词器…", #selector(chooseTokenizer)), button("清除分词器", #selector(clearTokenizer))]))
@@ -266,11 +266,12 @@ final class JevTrainingPreferences: NSWindowController, NSTableViewDataSource, N
     let states = ["off": "关闭", "ready": "就绪", "paused": "暂停", "stopping": "正在停止／切换配置"]
     let reasons = ["disabled": "采集未开启", "invalid_configuration": "配置无效", "unsafe_directory": "目录不可用或权限不符合要求",
                    "directory_changed": "目录已变更", "unsafe_file": "采集文件不符合读取要求", "key_unavailable": "加密密钥不可用",
-                   "crypto_failed": "加密失败", "quota_exceeded": "已达容量上限", "storage_failed": "写入失败",
+                   "crypto_failed": "加密失败", "quota_exceeded": "单条记录超过上限或没有可安全清理的旧文件", "storage_failed": "写入失败",
                    "read_failed": "读取失败", "invalid_envelope": "采集文件格式无效", "authentication_failed": "采集文件无法通过解密校验",
                    "trash_failed": "无法移到废纸篓", "off_main_required": "操作需要在后台执行", "superseded": "配置已更新"]
     let reason = status.reason.isEmpty ? "" : (reasons[status.reason] ?? "存储暂不可用") + "\n"
     liveStatus.stringValue = "采集\(saved.enabled ? "已启用" : "已关闭") · 状态：\(states[status.state] ?? "未知")\n\(reason)本次启动：已写入 \(status.written) · 已丢弃 \(status.dropped) · 最后观测占用 \(ByteCountFormatter.string(fromByteCount: Int64(status.bytes), countStyle: .file))"
+    liveStatus.stringValue += "\n自动清理：\(status.prunedFiles) 个旧文件 · 释放 \(ByteCountFormatter.string(fromByteCount: status.reclaimedBytes, countStyle: .file))"
     if saved.scope == "selected", saved.includedApps.isEmpty {
       liveStatus.stringValue += "\n包含名单为空，当前无法采集。"
     }
