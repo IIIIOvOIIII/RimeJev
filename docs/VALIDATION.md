@@ -25,7 +25,7 @@ The public package was built and tested, but not installed over the already acce
 The published history starts from a sanitized source snapshot. Private development history, private setup evidence, local configuration, credentials, models, and personal dictionaries are not included.
 
 
-## 0.3.0 Tev and model timeout validation (in progress)
+## 0.3.0 Tev and model timeout validation
 
 The four active identities are `jev`, `local` (TT), `tev-0.8b`, and `tev-4b`; both Tev sizes display `✦ Tev`. Three local models were loaded and exercised with fixed synthetic inputs. Selected-model shutdown was followed by an empty managed-service `/api/ps` list. The original system service was not replaced.
 
@@ -42,4 +42,20 @@ The bounded Tev ledger includes eight diagnostic decisions plus startup warmups;
 
 User-approved timeout controls allow 0.3–10 seconds per model. Defaults are 0.6s for Jev, TT and Tev 0.8B; 2s for Tev 4B. Tests cover independent values, persistence-compatible optional settings, invalid/NaN/boundary values, remaining runtime budgets, deadlines, selection locks, and stale variants. Native lifecycle tests include a release slower than the initial three-second wait and verify automatic continuation without another key.
 
-The backend suite currently passes 331 tests, and 168 real-Rime fixture probes cover all four sources. Build/install/actual settings-window validation will be recorded after the final gate. Model choice is not proof of correct Chinese predictions across all contexts.
+Final deployment preflight passed on source commit `cc2c4fc819308b8a50dafe6b218a8ba833a284fc`:
+
+| Check | Result |
+| --- | --- |
+| Python tests | 341 passed; backend line coverage 89.31% |
+| Native coordinator | Passed; line coverage 91% |
+| Context, badges, timeout persistence, runtime switching | Passed, including adopted processes, delayed release, failed unload/retry, download-triggered reload and stale responses |
+| Real-Rime engine | 168 isolated synthetic-fixture probes passed across all four provider identities |
+| Native build and installation | arm64 0.3.0 built, signed and installed; installed binary and Lua match the verified source |
+| Installed settings window | Correct model list; 4B default 2s; custom 3.2s and 1.1s values remain independent across switching; invalid 0.1s rejected; reset returns to 2s/0.6s; 4B visibly ready |
+| Credential/metadata checks | Gitleaks found no leaks in staged changes or the three-commit source history; all 83 tracked files passed private-metadata checks |
+
+The first installation smoke check ran before macOS exposed the refreshed input source. One bounded registration/enablement retry through the installed app resolved it; the subsequent read-only smoke passed. An ownerless legacy TT socket was archived only after confirming no process/listener owned it. Source registration and stale-process cleanup are not model-quality evidence.
+
+The system Ollama remained 0.33.2 on its original port; the isolated Tev service is 0.40.3. Existing user application choices and TT weight paths were preserved during migration. Only non-secret credential-service metadata was migrated locally; none was published.
+
+Actual settings interaction was observed. Fresh manual typing acceptance for 0.3.0 has been requested separately; the earlier user acceptance belongs to 0.2.4. Model choice is not proof of correct Chinese predictions across all contexts.

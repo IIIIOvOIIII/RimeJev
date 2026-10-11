@@ -61,7 +61,7 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 
 ### 验证与范围
 
-0.2.4 的原始开发版本通过了 96 项后端测试、84 组真实 Rime 引擎回归及本机安装检查，用户确认了第二位推荐和数字 2 上屏。公开版保留候选逻辑，移除了私有开发环境依赖，并用合成测试词库替代个人词库副本；公开版构建/测试与现场输入验收分别记录在 [VALIDATION.md](docs/VALIDATION.md)。模型仍可能判断错误，首次连接和慢响应可能保持原排序。
+0.3.0 通过了 341 项后端测试、168 组真实 Rime 引擎回归、原生设置/切换测试及本机安装检查。设置窗口已实际验证保存、切换、恢复默认；0.2.4 的用户验收确认了第二位推荐和数字 2 上屏。公开版保留候选逻辑，移除了私有开发环境依赖，并用合成测试词库替代个人词库副本；公开版构建/测试与现场输入验收分别记录在 [VALIDATION.md](docs/VALIDATION.md)。模型仍可能判断错误，首次连接和慢响应可能保持原排序。
 
 - [安装与恢复](LLM_INSTALL.md)
 - [架构与交互](docs/ARCHITECTURE.md)
@@ -97,7 +97,7 @@ Cloud mode sends a bounded preceding context, the current pinyin, and candidates
 
 ### Validation and limitations
 
-The development version passed 96 backend tests, 84 real-Rime regression probes, and installation checks; the user confirmed second-slot recommendations and digit-2 submission. Public packaging removes private-machine assumptions and supplies synthetic Rime fixtures. See [the validation report](docs/VALIDATION.md) for the public release checks and the distinction between engine tests, model quality, and live typing acceptance.
+Version 0.3.0 passed 341 backend tests, 168 real-Rime regression probes, native settings/switching tests, and installation checks. The actual settings window was checked for save, switching, and reset. Earlier 0.2.4 user acceptance confirmed second-slot recommendations and digit-2 submission. Public packaging removes private-machine assumptions and supplies synthetic Rime fixtures. See [the validation report](docs/VALIDATION.md) for the public release checks and the distinction between engine tests, model quality, and live typing acceptance.
 
 This remains an experimental input-method integration. Recommendations can be wrong, and slow responses intentionally leave native ordering unchanged. Do not infer support for every macOS application from one successful host test.
 
