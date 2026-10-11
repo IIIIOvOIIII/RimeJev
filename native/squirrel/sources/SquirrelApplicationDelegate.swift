@@ -233,7 +233,9 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
 
     let notifCenter = DistributedNotificationCenter.default()
     notifCenter.addObserver(forName: .init("RimeJevSettingsNotification"), object: nil, queue: .main) { [weak self] _ in
-      if let controller = self?.panel?.inputController { JevPreferences.show(for: controller) }
+      if let controller = SquirrelInputController.latestController ?? self?.panel?.inputController {
+        JevPreferences.show(for: controller)
+      }
     }
     notifCenter.addObserver(forName: .init("RimeJevStatusNotification"), object: nil, queue: .main) { [weak self] _ in
       guard let self else { return }
