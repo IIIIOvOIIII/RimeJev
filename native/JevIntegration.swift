@@ -497,9 +497,6 @@ final class JevInputAdapter {
     guard let app=controller?.currentApp else {return}
     JevSettings.current.setAppOrder(order,for:app);saveSelection()
   }
-  func chooseDefaultMode(_ mode:String) {JevSettings.current.setGlobalMode(mode);saveSelection()}
-  func chooseDefaultLocalModel(_ model:String) {JevSettings.current.setGlobalLocalModel(model);saveSelection()}
-  func chooseDefaultOrder(_ order:[String]) {JevSettings.current.setGlobalOrder(order);saveSelection()}
   func followDefault() {
     guard let app=controller?.currentApp else {return}
     JevSettings.current.followDefault(for:app);saveSelection()
@@ -824,12 +821,19 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
     let index=orderTable.selectedRow,next=index+delta
     guard (0...1).contains(index),(0...1).contains(next) else {return}
     var order=selectedOrder;order.swapAt(index,next)
-    if editingDefaults {inputOwner?.jev.chooseDefaultOrder(order)} else {inputOwner?.jev.chooseOrder(order)}
+    if editingDefaults {JevSettings.current.setGlobalOrder(order);saveDefaults()} else {inputOwner?.jev.chooseOrder(order)}
     updateScopeHint()
     orderTable.reloadData();orderTable.selectRowIndexes(IndexSet(integer:next),byExtendingSelection:false);updateArrows();refreshStatus()
   }
   @objc private func orderUp() {move(-1)}
   @objc private func orderDown() {move(1)}
+  private func saveDefaults() {
+    JevSettings.save();JevInputAdapter.reloadPolicies()
+    if let owner=inputOwner,owner.client != nil {
+      JevRuntimeManager.shared.ensureRunning(providers:owner.jev.eligible ? owner.jev.activeProviders : [])
+      owner.rimeUpdate()
+    }
+  }
   @objc private func scopeChanged() {syncSelection();refreshStatus()}
   @objc private func followDefaults() {
     guard !editingDefaults else {return}
@@ -845,13 +849,13 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
     let modes=["off","jev","local","dual"]
     guard modes.indices.contains(mode.indexOfSelectedItem) else {return}
     let value=modes[mode.indexOfSelectedItem]
-    if editingDefaults {inputOwner?.jev.chooseDefaultMode(value)} else {inputOwner?.jev.chooseMode(value)}
+    if editingDefaults {JevSettings.current.setGlobalMode(value);saveDefaults()} else {inputOwner?.jev.chooseMode(value)}
     syncSelection();refreshStatus()
   }
   @objc private func localChanged() {
     guard JevProviders.local.indices.contains(localModel.indexOfSelectedItem) else {return}
     let value=JevProviders.local[localModel.indexOfSelectedItem]
-    if editingDefaults {inputOwner?.jev.chooseDefaultLocalModel(value)} else {inputOwner?.jev.chooseLocalModel(value)}
+    if editingDefaults {JevSettings.current.setGlobalLocalModel(value);saveDefaults()} else {inputOwner?.jev.chooseLocalModel(value)}
     syncSelection();refreshStatus()
   }
   @objc private func timeoutModelChanged() {
