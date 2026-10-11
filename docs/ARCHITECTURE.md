@@ -10,7 +10,7 @@ Candidates are immediately usable. Requests are debounced by 260ms. The current 
 
 Full pinyin considers eight candidates. Abbreviated or mixed pinyin can asynchronously materialize up to 24 comparable candidates, scanning no more than 64 raw candidates in small main-loop batches. Sampling time counts toward the original deadlines. Explicitly protected/custom candidates cause conservative abstention.
 
-Local failure never changes the provider to cloud. All modes are off by default; users explicitly enable a provider per application. Credentials, model weights, user dictionaries, runtime logs, and settings are not versioned.
+Local failure never changes the provider to cloud. Enhancement is off by default; users explicitly choose either an all-app default or individual application profiles. Credentials, model weights, user dictionaries, runtime logs, and settings are not versioned.
 
 
 0.3.0 adds `tev-0.8b` and `tev-4b` as distinct local provider identities. Both display `✦ Tev`; the existing `local` provider remains the compatible identifier for TT and displays `✦ TT`. Source labels no longer depend on whether a recommendation matched the first word. The first-preserved/second-slot placement contract is unchanged.

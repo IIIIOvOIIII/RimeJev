@@ -83,3 +83,11 @@ Existing application modes, custom timeout values and credential source were pre
 ### v0.4.0 publication package
 
 The release retains the exact runtime code verified and installed at `1b1f713df440ef4cfb4e2ca97ad5c15c244077a7`. Changes after that revision only update Markdown documentation, including the pinned `v0.4.0` installation commands. The tested source receipt was independently recomputed before publication. The GitHub release supplies source archives; local app binaries, credentials, settings, input data, logs, backups and downloaded models are excluded. No additional model-quality or live-key authentication claims are introduced by publication.
+
+## 0.4.1 all-application defaults
+
+Final installed code: `2b9ab93fa8349e6c5bb13b3e3266ebeb1f08e04a`. Full deployment preflight and installed read-only smoke passed. The existing Python, coordinator, runtime, Keychain, language-indicator and 437 real-Rime probes remain passing.
+
+The new settings tests compile the actual Settings implementation with only its storage location redirected. Eight logic groups and six separate loader scenarios cover unseen apps with an empty allowlist, all mode/model/order combinations, explicit-off precedence, complete override snapshots, later global changes, follow-default cleanup, invalid settings, legacy loading, persistence, unchanged timeouts, secure input, empty app identity and the input method's own settings. Active inheritance uses isolated profiles and makes no model or credential calls.
+
+Installed UI checks confirmed that settings open at “所有应用默认设置” with “关闭增强”, switching to current-app scope preserves the existing Jev override, and the follow-default control is visible. Returning to default scope still shows off. The user requested the live global default to remain off; it was never enabled during UI verification. The actual per-app modes, local choices, order, timeout values and credential metadata match their pre-install snapshot. No new real-key or model-quality claims are made.

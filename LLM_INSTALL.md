@@ -9,7 +9,7 @@ This is the dedicated installation contract for an LLM helping a user. 中文：
 - Preserve all existing input methods, user dictionaries, settings, text, and unrelated files. Never overwrite `~/Library/Rime` with a backup. Never reset macOS input-source preferences or disable SIP, Gatekeeper, TLS verification, or system permissions to make a test pass.
 - Use a dedicated empty test document. Never type test strings into a message composer that could send them, or replace an existing user document.
 - Do not ask the user to paste an API key into chat. Do not put a secret in command arguments, a settings file, an environment example, logs, the clipboard, or a commit.
-- Local mode must never fall back to cloud. Model enhancement starts **off**, and per-app cloud enablement requires the user's choice.
+- Local mode must never fall back to cloud. Model enhancement starts **off**. Cloud use requires the user's choice, either for a specific app or as the default for unconfigured apps.
 - Do not run `scripts/evaluate.py` as an installation test. It is an optional legacy experiment requiring separate prepared data and an explicit call budget; it does not measure the current second-slot UI policy.
 - Do not change probability thresholds, response deadlines, or candidate words merely to produce a successful-looking screenshot.
 

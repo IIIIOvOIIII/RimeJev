@@ -6,7 +6,7 @@ Context-aware Chinese candidate recommendations for **Squirrel (鼠须管) + Rim
 
 ## 中文
 
-RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强、云端 Jev、本地模型、云端＋本地模型** 四种模式；本地模型可选 **this-that-model 1.2、Tev 0.8B 或 Tev 4B**。基础输入不等待模型，按应用启用增强，默认关闭。
+RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强、云端 Jev、本地模型、云端＋本地模型** 四种模式；本地模型可选 **this-that-model 1.2、Tev 0.8B 或 Tev 4B**。基础输入不等待模型，可设置所有应用默认并为单个应用覆盖，默认关闭增强。
 
 ### 所有应用默认设置
 
@@ -76,6 +76,8 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 
 ### 验证与范围
 
+0.4.1 已完成默认继承、单独覆盖、恢复默认、旧配置兼容、存储重载和安全输入测试；实际设置窗口确认全局默认关闭，现有应用覆盖保留。按用户选择，本机验收没有开启全局增强，激活继承行为在隔离配置中验证。
+
 0.4.0 通过了 396 项后端测试、437 组真实 Rime 引擎探针、原生设置/切换/密钥/语言提示测试及本机安装检查。实际设置窗口验证了双后台就绪、上下排序、跨模式保留和密钥隐藏输入；用户已确认 Shift 中英文提示。候选引擎探针使用合成词库与受控推荐，不代表真实模型准确率。公开版保留候选逻辑，移除了私有开发环境依赖，并用合成测试词库替代个人词库副本；公开版构建/测试与现场输入验收分别记录在 [VALIDATION.md](docs/VALIDATION.md)。模型仍可能判断错误，首次连接和慢响应可能保持原排序。
 
 - [安装与恢复](LLM_INSTALL.md)
@@ -86,7 +88,7 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 
 ## English
 
-RimeJev adds asynchronous contextual recommendations to native Wanxiang candidates. Choose **off, Jev cloud, local, or cloud + local** per application. Select **this-that-model 1.2, Tev 0.8B, or Tev 4B** separately as the one local backend. Enhancement is off by default, and normal input never waits for a model.
+RimeJev adds asynchronous contextual recommendations to native Wanxiang candidates. Choose **off, Jev cloud, local, or cloud + local** as the default for all applications, with per-app overrides. Select **this-that-model 1.2, Tev 0.8B, or Tev 4B** separately as the one local backend. Enhancement is off by default, and normal input never waits for a model.
 
 ### Defaults for all applications
 
@@ -125,6 +127,8 @@ Cloud mode sends a bounded preceding context, the current pinyin, and candidates
 An actual Shift-triggered language change shows a one-second Chinese/English indicator near the caret. It is separate from the candidate panel and never takes focus; unchanged Shift combinations do not show it.
 
 ### Validation and limitations
+
+0.4.1 validates default inheritance, complete overrides, reset, legacy compatibility, reload, and secure-input eligibility. The installed UI confirms the global default is off and existing app overrides remain intact. Active global profiles were tested in isolated settings; the live default stayed off at the user’s request.
 
 Version 0.4.0 passed 396 backend tests, 437 real-Rime probes, native settings/switching/credential/indicator tests, and installation checks. The installed settings window verified both backends ready, Up/Down ordering, persistence across modes, and masked key input. The user confirmed actual Shift language feedback. Controlled engine responses and synthetic dictionaries validate placement, not model accuracy. Public packaging removes private-machine assumptions and supplies synthetic Rime fixtures. See [the validation report](docs/VALIDATION.md) for the public release checks and the distinction between engine tests, model quality, and live typing acceptance.
 
