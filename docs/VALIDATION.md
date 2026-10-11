@@ -59,3 +59,23 @@ The first installation smoke check ran before macOS exposed the refreshed input 
 The system Ollama remained 0.33.2 on its original port; the isolated Tev service is 0.40.3. Existing user application choices and TT weight paths were preserved during migration. Only non-secret credential-service metadata was migrated locally; none was published.
 
 Actual settings interaction was observed. Fresh manual typing acceptance for 0.3.0 has been requested separately; the earlier user acceptance belongs to 0.2.4. Model choice is not proof of correct Chinese predictions across all contexts.
+
+## 0.4.0 dual models, direct key entry and Shift feedback
+
+Final installed code is `1b1f713df440ef4cfb4e2ca97ad5c15c244077a7`. Local deployment and read-only installation smoke passed after the full preflight. macOS requested input-method enablement; that visible prompt was accepted under the existing installation authorization. Earlier automation still using Apple Pinyin is not recorded as Rime acceptance.
+
+| Check | Evidence |
+| --- | --- |
+| Python | 396 tests passed; backend line coverage 90.19% |
+| Native coordinator | Passed; core line coverage 91.5%; independent dual deadlines and selection-lock behavior covered |
+| Candidate planner and real Rime | 66 planner cases; 437 engine probes, including slots 2/3, numeric selection, both priorities, same-word merging, partial responses and stale payloads |
+| Runtime integration | Cloud/local coexistence, one-local replacement, credential revision during rapid changes, blocked Keychain authorization without blocking local, local-pressure/cloud-response independence, and stale callbacks passed against isolated processes |
+| Installed settings | Four modes and three local choices visible; both Up and Down work; order/local choice persist across mode changes; both Jev+TT and Jev+Tev0.8B displayed ready |
+| Key UI | Secure field masked an unsaved synthetic value; that value was cleared; empty save rejected; real credentials were not replaced |
+| Credential logic | Keychain SecItem queries/write/read/replace/delete tested with injected Security APIs; bounded stdin transport and runtime construction tested using synthetic credentials |
+| Shift | User confirmed the Chinese/English indicator after real Shift input on the first 0.4 build. The final patch only fixes settings opening before the first candidate panel and leaves the Shift implementation unchanged |
+| Installation | Version/name/signature, installed binary receipt, deployed Lua, input source and original Squirrel preservation passed |
+
+A regression-test race exposed overlapping teardown between independent fake managers sharing test sockets. Tests now drain each manager before starting the next fixture; the runtime also stops superseded reconciliation between providers. Full preflight passed after correction. These diagnostics were not counted as successful runs.
+
+Existing application modes, custom timeout values and credential source were preserved; temporary UI selections were restored. No new real API key was saved and no live authentication with a newly entered key is claimed. Engine placement, actual settings interaction, user-confirmed Shift behavior and real-model prediction quality are distinct evidence scopes. Original provider thresholds and model identities were not changed to force predictions.

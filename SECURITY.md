@@ -8,3 +8,5 @@
 - This source release uses an ad-hoc local build, not Apple Developer ID notarization. macOS input-source consent remains required.
 
 If you find a security issue, use GitHub's private vulnerability reporting when available, or contact the repository owner privately. Do not post a working secret or sensitive reproduction data in a public issue.
+
+The direct-key implementation follows Apple’s [SecItem Keychain API guidance](https://developer.apple.com/documentation/security/using-the-keychain-to-manage-user-secrets) and uses an [NSSecureTextField](https://developer.apple.com/documentation/appkit/nssecuretextfield) for entry. UI success indicates storage, not proof that a provider accepts the key.

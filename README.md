@@ -33,6 +33,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
+git checkout feat/dual-model-settings
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 bash scripts/run_quality_gate.sh --gate local
@@ -69,7 +70,7 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 
 ### 验证与范围
 
-0.3.0 通过了 341 项后端测试、168 组真实 Rime 引擎回归、原生设置/切换测试及本机安装检查。设置窗口已实际验证保存、切换、恢复默认；0.2.4 的用户验收确认了第二位推荐和数字 2 上屏。公开版保留候选逻辑，移除了私有开发环境依赖，并用合成测试词库替代个人词库副本；公开版构建/测试与现场输入验收分别记录在 [VALIDATION.md](docs/VALIDATION.md)。模型仍可能判断错误，首次连接和慢响应可能保持原排序。
+0.4.0 通过了 396 项后端测试、437 组真实 Rime 引擎探针、原生设置/切换/密钥/语言提示测试及本机安装检查。实际设置窗口验证了双后台就绪、上下排序、跨模式保留和密钥隐藏输入；用户已确认 Shift 中英文提示。候选引擎探针使用合成词库与受控推荐，不代表真实模型准确率。公开版保留候选逻辑，移除了私有开发环境依赖，并用合成测试词库替代个人词库副本；公开版构建/测试与现场输入验收分别记录在 [VALIDATION.md](docs/VALIDATION.md)。模型仍可能判断错误，首次连接和慢响应可能保持原排序。
 
 - [安装与恢复](LLM_INSTALL.md)
 - [架构与交互](docs/ARCHITECTURE.md)
@@ -99,7 +100,7 @@ The recommendation is removed from its previous position, so it is not duplicate
 
 This is a **source release**, not an Apple-notarized installer. Requirements: Apple Silicon, macOS 14+, Command Line Tools, Python 3.12/3.13, uv, and a working Squirrel 1.1.2 installation with Wanxiang. Full Xcode is not required for this build path.
 
-Give [LLM_INSTALL.md](LLM_INSTALL.md) to the LLM assisting with installation. Follow its preflight, backup, build, consent, smoke-test, manual typing, and rollback steps. The commands in the Chinese section are the same commands for English-language installations. Model weights are optional for cloud/off mode and are downloaded separately for local mode. Select TT, Tev 0.8B, or Tev 4B from settings or the input menu per application. Labels are exactly `✦ TT`, `✦ Tev`, and `✦ Jev`, regardless of recommendation position. Tev uses a pinned local runtime on a dedicated loopback port; it does not replace the system Ollama service or enable cloud inference. Settings expose a separate 0.3–10 second timeout for every model, with restore-default controls. Defaults are 0.6s for Jev/TT/Tev 0.8B and 2s for Tev 4B. Time includes debounce and sampling; continuing input or selection invalidates old results.
+Give [LLM_INSTALL.md](LLM_INSTALL.md) to the LLM assisting with installation. Follow its preflight, backup, build, consent, smoke-test, manual typing, and rollback steps. The commands in the Chinese section are the same commands for English-language installations. Model weights are optional for cloud/off mode and are downloaded separately for local mode. Select TT, Tev 0.8B, or Tev 4B from settings for each application’s local or dual mode. Labels are exactly `✦ TT`, `✦ Tev`, and `✦ Jev`, regardless of recommendation position. Tev uses a pinned local runtime on a dedicated loopback port; it does not replace the system Ollama service or enable cloud inference. Settings expose a separate 0.3–10 second timeout for every model, with restore-default controls. Defaults are 0.6s for Jev/TT/Tev 0.8B and 2s for Tev 4B. Time includes debounce and sampling; continuing input or selection invalidates old results.
 
 ### Credentials and data
 
@@ -113,7 +114,7 @@ An actual Shift-triggered language change shows a one-second Chinese/English ind
 
 ### Validation and limitations
 
-Version 0.3.0 passed 341 backend tests, 168 real-Rime regression probes, native settings/switching tests, and installation checks. The actual settings window was checked for save, switching, and reset. Earlier 0.2.4 user acceptance confirmed second-slot recommendations and digit-2 submission. Public packaging removes private-machine assumptions and supplies synthetic Rime fixtures. See [the validation report](docs/VALIDATION.md) for the public release checks and the distinction between engine tests, model quality, and live typing acceptance.
+Version 0.4.0 passed 396 backend tests, 437 real-Rime probes, native settings/switching/credential/indicator tests, and installation checks. The installed settings window verified both backends ready, Up/Down ordering, persistence across modes, and masked key input. The user confirmed actual Shift language feedback. Controlled engine responses and synthetic dictionaries validate placement, not model accuracy. Public packaging removes private-machine assumptions and supplies synthetic Rime fixtures. See [the validation report](docs/VALIDATION.md) for the public release checks and the distinction between engine tests, model quality, and live typing acceptance.
 
 This remains an experimental input-method integration. Recommendations can be wrong, and slow responses intentionally leave native ordering unchanged. Do not infer support for every macOS application from one successful host test.
 

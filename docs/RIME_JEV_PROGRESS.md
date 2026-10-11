@@ -38,3 +38,11 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Result: dual candidate planning and 437 real-Rime probes pass; independent-deadline coordinator tests and concurrent runtime tests pass. Native settings, model migration and separate Shift HUD compile. Python suite passes 396 tests. Keychain/storage and bounded stdin tests use synthetic credentials only.
 - Review corrections: credential revisions survive rapid local-model changes; pending Keychain authorization runs on a separate queue; local memory pressure invalidates local work without discarding cloud results. Isolated native lifecycle tests exercise all three cases.
 - Next: final credential scan and deploy-preflight, local install, actual settings/HUD interaction. Preserve user timeouts and per-app modes; no automatic secret migration or new cloud enablement.
+
+### 2026-10-11 — local deployment and verification complete
+
+- Current work: 0.4.0 implementation and local verification completed; final installed source `1b1f713df440ef4cfb4e2ca97ad5c15c244077a7`.
+- Expected result: requested dual modes/priority, secure direct-key settings and Shift feedback, preserving existing input and settings.
+- Result: achieved at code/install/test scope. Full preflight and installed smoke passed. Actual settings showed four modes, all local models, working Up/Down order, persisted selections, masked input and concurrent backend readiness. User confirmed real Shift language feedback. Key storage/transport used synthetic test data; no real key replacement was needed. See VALIDATION.md for evidence boundaries.
+- Cleanup: unsaved UI test text cleared, temporary model/priority changes restored, existing user timeouts and credential source retained. Original app/data remain recoverable. Code and bilingual installation documentation are on `feat/dual-model-settings`; no new formal release tag is created by this local-deployment task.
+- Next: user can enable cloud + local in any chosen application and save their own API key through the secure field if desired. No required implementation work remains in this request.
