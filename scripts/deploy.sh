@@ -33,8 +33,10 @@ fi
 source_sha=$(git rev-parse HEAD)
 .venv/bin/python scripts/stop_runtime.py
 mkdir -p "$HOME/Library/Input Methods" work/backups
+restart_existing=false
 if [[ -e "$app_dir" ]]; then
-  "$app_dir/Contents/MacOS/Squirrel" --quit || true
+  swift scripts/restart_input.swift --stop
+  restart_existing=true
   ditto "$app_dir" "work/backups/Rime-Jev-app-$(date +%Y%m%dT%H%M%S)"
 fi
 if [[ ! -d "$user_dir" ]]; then
@@ -54,8 +56,7 @@ swift scripts/register_input.swift
 .venv/bin/python - "$project_dir" "$source_sha" "$app_dir" "$user_dir" <<'PY'
 import json,pathlib,sys,hashlib,datetime
 root,sha,app,user=map(str,sys.argv[1:]);p=pathlib.Path(root)
-info={'source_commit':sha,'installed_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'app':app,'user_data':user,'bundle_id':'im.lynx.inputmethod.RimeJev','binary_sha256':hashlib.sha256((pathlib.Path(app)/'Contents/MacOS/Squirrel').read_bytes()).hexdigest(),'default_mode':'off'}
-(p/'work/evidence/install.json').write_text(json.dumps(info,indent=2)+'\n')
+info={'source_commit':sha,'installed_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'app':app,'user_data':user,'bundle_id':'im.lynx.inputmethod.RimeJev','binary_sha256':hashlib.sha256((pathlib.Path(app)/'Contents/MacOS/Squirrel').read_bytes()).hexdigest(),'default_mode':None}
 settings=pathlib.Path.home()/'Library/Application Support/Rime-Jev/settings.json'
 settings.parent.mkdir(parents=True,exist_ok=True,mode=0o700)
 if settings.exists():
@@ -65,7 +66,12 @@ else:
  data={'mode':'off','allowedApps':[],'appModes':{},'projectRoot':root,'modelPath':root+'/work/models/this-that-model-1.2','vaultRef':'typesafe_api_key','localThreshold':0.65,'jevThreshold':0.55}
 settings.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
 settings.chmod(0o600)
+info['default_mode']=data.get('defaultMode','off')
+(p/'work/evidence/install.json').write_text(json.dumps(info,indent=2)+'\n')
 print(json.dumps(info))
 PY
 open -g -a "$app_dir"
+if [[ "$restart_existing" == true ]]; then
+  swift scripts/restart_input.swift --restore
+fi
 printf 'Installed user-scoped Rime-Jev. Original Squirrel and its data remain available.\n'

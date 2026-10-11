@@ -101,3 +101,9 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Next: finish actual adapter integration tests and full preflight, then local install and synthetic host acceptance.
 
 - Adapter integration result: 15 actual-adapter/main-runloop scenarios passed with in-memory host/runtime boundaries. Fresh pasted text and known-position empty context dispatch and apply; unknown position, changed text/caret and superseded work are rejected. Both provider priorities and remaining deadline accounting pass. Full Rime/UI checks follow separately.
+
+### Deployment restart correction
+
+- Initial preflight and installation smoke passed at `5a52bb5`, but live diagnostics exposed an old-code process automatically relaunched while files were being copied. This was not counted as new-feature acceptance.
+- Fix: on updates, temporarily release a selected RimeJev source, await the previous process exiting, replace/build/register, then restore the same source if the user has not changed selection. Other input-source choices remain unchanged. Status now includes the running bundle version; installation records the actual preserved global mode.
+- Next: rerun the exact-source gate and installation, then resume synthetic typing validation.

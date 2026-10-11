@@ -241,7 +241,7 @@ final class SquirrelApplicationDelegate: NSObject, NSApplicationDelegate, SPUSta
       guard let self else { return }
       let controller = SquirrelInputController.latestController ?? self.panel?.inputController
       let payload: [String: Any] = ["captured_at": Date().timeIntervalSince1970,
-        "bundle_id": Bundle.main.bundleIdentifier ?? "", "pid": ProcessInfo.processInfo.processIdentifier,
+        "bundle_id": Bundle.main.bundleIdentifier ?? "", "version": Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "", "pid": ProcessInfo.processInfo.processIdentifier,
         "panel_ready": self.panel != nil, "client": controller?.currentApp ?? "",
         "session_active": controller.map { self.rimeAPI.find_session($0.session) } ?? false,
         "provider": controller?.jev.provider ?? "off", "server_ready": SquirrelApp.inputServer != nil,

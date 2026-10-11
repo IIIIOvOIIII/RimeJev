@@ -58,7 +58,7 @@ fi
 
 For an update, also preserve existing `~/Library/Input Methods/Rime-Jev.app`, `~/Library/Rime-Jev`, and the non-secret settings under `~/Library/Application Support/Rime-Jev` in a new timestamped directory under `work/backups`. The installer backs up its previous app, but does not replace a complete user-data backup. Never upload these backups to GitHub.
 
-Finish or cancel any active composition before restarting the input method.
+Finish or cancel any active composition before restarting the input method. On updates, the installer temporarily releases an active RimeJev source to the current ASCII-capable source and waits for the old process to exit before replacing files. It restores RimeJev only if it was previously selected and the user has not selected another source. This prevents macOS from relaunching old code during file replacement.
 
 ## 4. Prepare the selected model
 

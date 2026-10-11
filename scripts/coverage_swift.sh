@@ -2,6 +2,7 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 mkdir -p work artifacts/coverage
+swiftc -typecheck scripts/restart_input.swift
 swiftc -parse-as-library -profile-generate -profile-coverage-mapping native/JevCore.swift native/JevCandidatePlan.swift native/tests/JevCoreTests.swift -o work/JevCoreCoverage
 LLVM_PROFILE_FILE=work/JevCore.profraw work/JevCoreCoverage
 xcrun llvm-profdata merge -sparse work/JevCore.profraw -o work/JevCore.profdata
