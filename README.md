@@ -14,7 +14,15 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 需要例外时选择 **当前应用单独设置**；单独设置优先，包括明确关闭增强。点击“跟随默认”可移除该应用的覆盖，重新使用全局默认。菜单也提供“当前应用：跟随所有应用默认”。超时仍按模型统一保存；安全输入和输入法自身设置不运行增强。
 
-### 0.4.1 的候选规则
+### 当前行语境（0.4.2）
+
+增强开启时，输入法读取当前输入框中、正在组合的拼音之前的同一逻辑行文字，最多使用最近 80 个完整字符。已有内容、粘贴内容、停顿后继续输入都可成为语境；窗口自动折行不切断语境，实际换行会切断。组合中已确认的汉字前缀只拼接一次。当前行为空时，也可根据拼音和真实候选调用模型，模型可以放弃推荐。
+
+输入框不提供文字但光标位置有效时，仅回退到经过验证的连续输入记录，或无前文判断；无法确认光标位置则保留原候选。读取和模型失败都保留原生候选；移动光标、切换输入框或修改前文会使旧请求失效。读取范围、空值与 Unicode 边界均校验；首次遇到慢应用的同步接口仍可能产生延迟，后续短暂暂停文本读取。不同应用兼容性需分别验收。
+
+云端模式发送的有限前文现在也可能包含输入框中已有或粘贴的文字。本地模式仍不发送到云端；增强关闭、安全输入和输入法自身设置不读取这些前文。不记录真实文本，诊断仅包含来源、长度、耗时和状态。
+
+### 0.4.2 的候选规则
 
 | 模型结果 | 显示与选词 |
 | --- | --- |
@@ -30,7 +38,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 ### 安装
 
-这是 **0.4.1 源码版本**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
+这是 **0.4.2 源码开发版**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
 
 请将 [LLM_INSTALL.md](LLM_INSTALL.md) 交给协助安装的 LLM。它包含环境检查、固定版本依赖、测试、备份、安装、系统授权、手动验收及回退步骤。完整 Xcode 不是前提。不要跳过检查直接运行安装器。
 
@@ -39,7 +47,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout v0.4.1
+git checkout feat/current-line-context
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 bash scripts/run_quality_gate.sh --gate local
@@ -96,7 +104,15 @@ Choose **All applications defaults** in the settings scope to configure the mode
 
 Choose **Current application settings** to create an exception. Explicit app settings, including off, take precedence. **Follow default** removes the complete app override and resumes inheritance. Timeouts remain shared per model. Secure input and the input method's own settings remain excluded.
 
-### Candidate behavior in 0.4.1
+### Current-line context (0.4.2)
+
+When enhancement is enabled, the IME reads up to the latest 80 complete characters in the same logical line before the composition. Existing, pasted and paused input can supply context. Soft wrapping does not split context; actual newlines do. Confirmed composition prefixes are appended once. Empty lines still permit a model decision using pinyin and genuine candidates, including abstention.
+
+Unavailable host text with a valid caret anchor falls back only to verified recent commits or an empty context. Unavailable caret positions retain native candidates. Cursor, input-client or preceding-text changes invalidate old requests. Range/Unicode checks reject malformed host responses. Native candidates remain available on read/model failure. A slow synchronous host API can delay its first read; subsequent reads temporarily back off. Application compatibility requires separate live verification.
+
+In cloud mode, the bounded prefix may now include existing or pasted text from the input field. Local mode never sends it to cloud; off, secure input and the IME's settings do not collect it. Diagnostics contain only source, length, duration and status, never actual text.
+
+### Candidate behavior in 0.4.2
 
 | Model result | Display and selection |
 | --- | --- |

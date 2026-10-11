@@ -388,7 +388,13 @@ final class JevInputAdapter {
   private var expectedEnd: Int? { recentContext.expectedEnd }
   private var clientIdentity: String? { recentContext.clientIdentity }
   private var pendingHostCommit = false
-  private var confirmedPrefix = "", requestContext = ""
+  private var confirmedPrefix = ""
+  private var requestSnapshot: JevLineSnapshot?
+  private var requestStartedAt: Int64?
+  private var lastContextSource = "none", lastContextReadReason = "none"
+  private var contextReadCount = 0, resolvedContextLength = 0
+  private var contextReadMilliseconds = 0.0, maximumContextReadMilliseconds = 0.0
+  private var slowClient: String?, slowUntil = 0.0
   private var baseline: [JevCandidate] = []
   private var visible: [String] = []
   private var visiblePage = 0
@@ -402,9 +408,7 @@ final class JevInputAdapter {
     let created: Date
   }
   private var cache: [String: CachedChoice] = [:]
-  private var cacheKey = ""
   private var requestCacheKey = ""
-  private var pendingCache: CachedChoice?
   private var preparedSeed = "", samplingSeed = ""
   private var samplingScanned = 0, samplingBatches = 0
   private var applying = false
@@ -416,7 +420,9 @@ final class JevInputAdapter {
      "requests":requests,"decisions":decisions,"reason":lastReason,"response_status":responseStatus,
      "context_check":recentContext.lastCheckReason,"last_context_failure":lastContinuityFailure,"decision_outcome":coordinator.lastOutcome,
      "sampling_scanned":samplingScanned,"sampling_batches":samplingBatches,
-     "context_length":context.count,"confirmed_prefix_length":confirmedPrefix.count,"candidate_count":baseline.count]
+     "context_length":resolvedContextLength,"confirmed_prefix_length":confirmedPrefix.count,"candidate_count":baseline.count,
+     "context_source":lastContextSource,"context_read_reason":lastContextReadReason,"context_reads":contextReadCount,
+     "context_read_ms":contextReadMilliseconds,"context_read_max_ms":maximumContextReadMilliseconds]
   }
   func noteProxyChange() { proxyChanges += 1 }
   private var coordinator: JevDecisionCoordinator!
@@ -441,15 +447,22 @@ final class JevInputAdapter {
         localProbability:settings.localThreshold,jevProbability:settings.jevThreshold,
         tevProbability:settings.tevThreshold ?? 0.65),providerTimeouts:JevProviders.timeouts(overrides:settings.timeoutOverrides)),transport:{ [weak self] request,completion in
           guard let self else {return JevSocketCall()}
-          self.verifyContinuity()
           guard self.eligible,self.activeProviders.contains(request.provider),
-                String((self.context+self.confirmedPrefix).suffix(80))==request.state.context else {
+                self.requestSnapshot?.context == request.state.context, self.requestIsCurrent() else {
             self.lastReason="context_changed_before_request"
             completion(JevDecisionResponse(id:request.id,status:"unavailable",provider:request.provider))
             return JevSocketCall()
           }
+          let remaining=self.remainingBudget(for:request.provider)
+          guard remaining > 0 else {
+            self.lastReason="context_read_exceeded_deadline"
+            completion(JevDecisionResponse(id:request.id,status:"unavailable",provider:request.provider))
+            return JevSocketCall()
+          }
+          let bounded=JevDecisionRequest(id:request.id,state:request.state,candidates:request.candidates,
+                                        maxAgeMilliseconds:min(request.maxAgeMilliseconds,remaining),provider:request.provider)
           self.requests += 1
-          return JevRuntimeManager.shared.send(request,provider:request.provider) { [weak self] response in
+          return JevRuntimeManager.shared.send(bounded,provider:request.provider) { [weak self] response in
             self?.responseStatus=response.status;completion(response)
           }
         },onDecision:{ [weak self] decision in self?.apply(decision) })
@@ -470,10 +483,9 @@ final class JevInputAdapter {
   func invalidate(clearContext: Bool = false) {
     modelCoordinators.values.forEach {$0.invalidate()}; epoch &+= 1
     preparedSeed="";samplingSeed=""
-    identity = ""; input = ""; confirmedPrefix=""; requestContext=""; baseline = []; badges.removeAll(); modelChoices.removeAll()
+    identity = ""; input = ""; confirmedPrefix=""; requestSnapshot=nil;requestStartedAt=nil; baseline = []; badges.removeAll(); modelChoices.removeAll()
     sortingLocked = false; committingLocked = false
     set("_jev_epoch", String(epoch)); set("_jev_result", "")
-    pendingCache = nil
     if clearContext { contextClears += 1; recentContext.reset(); pendingHostCommit=false; cache.removeAll(); focusGeneration &+= 1 }
   }
   func activate() {
@@ -506,7 +518,6 @@ final class JevInputAdapter {
   func beforeEvent(_ event: NSEvent) {
     guard event.type == .keyDown else { return }
     if event.modifierFlags.contains(.command) { invalidate(clearContext: true); return }
-    verifyContinuity(allowPendingCommit:true)
     recentContext.noteActivity(now: ProcessInfo.processInfo.systemUptime)
     let chars = event.charactersIgnoringModifiers ?? ""
     if [36,48,49,76].contains(Int(event.keyCode)) || chars.rangeOfCharacter(from: .decimalDigits) != nil {
@@ -519,9 +530,7 @@ final class JevInputAdapter {
     }
   }
   private func cursorBase(_ client: IMKTextInput) -> Int? {
-    let marked = client.markedRange(), selected = client.selectedRange()
-    let base = marked.location != NSNotFound && marked.length > 0 ? marked.location : selected.location
-    return base == NSNotFound ? nil : base
+    textPosition(client).base
   }
   private func verifyContinuity(allowPendingCommit: Bool = false) {
     guard !context.isEmpty else { return }
@@ -549,21 +558,56 @@ final class JevInputAdapter {
     pendingHostCommit=true
     modelCoordinators.values.forEach {$0.invalidate()};badges.removeAll();modelChoices.removeAll()
   }
+  private func textPosition(_ client: IMKTextInput) -> JevTextPosition {
+    JevTextPosition(client:String(describing:ObjectIdentifier(client as AnyObject)),
+                    selected:client.selectedRange(),marked:client.markedRange())
+  }
+  private func captureContext() -> JevLineSnapshot? {
+    guard eligible, let client=controller?.client else { return nil }
+    let started=ProcessInfo.processInfo.systemUptime
+    let position=textPosition(client)
+    let result=JevLineContext.resolve(position:position,confirmedPrefix:confirmedPrefix,read:{ range in
+      guard self.slowClient != position.client || started >= self.slowUntil else { return nil }
+      var actual=range
+      guard let text=client.string(from:range,actualRange:&actual) else { return nil }
+      return JevTextSlice(text:text,range:actual)
+    },verifiedCommitted:{
+      guard self.slowClient != position.client || started >= self.slowUntil else { return nil }
+      self.verifyContinuity()
+      return self.recentContext.lastCheckReason == "verified" ? self.context : nil
+    })
+    contextReadCount += 1
+    contextReadMilliseconds=(ProcessInfo.processInfo.systemUptime-started)*1000
+    maximumContextReadMilliseconds=max(maximumContextReadMilliseconds,contextReadMilliseconds)
+    if contextReadMilliseconds > 50 { slowClient=position.client;slowUntil=ProcessInfo.processInfo.systemUptime+5 }
+    guard eligible, let current=controller?.client, textPosition(current)==position else {
+      lastContextReadReason="position_changed_during_read";return nil
+    }
+    lastContextSource=result.source;lastContextReadReason=result.readReason;resolvedContextLength=result.context.count
+    return result
+  }
+  private func remainingBudget(for provider:String) -> Int64 {
+    guard let requestStartedAt else { return 0 }
+    return JevProviders.timeoutMilliseconds(provider:provider,overrides:JevSettings.current.timeoutOverrides) -
+      max(0,coordinator.clock.nowMilliseconds()-requestStartedAt)
+  }
+  private func requestIsCurrent() -> Bool {
+    guard let expected=requestSnapshot, expected.position.base != nil,
+          let c=controller, c.rimeAPI.find_session(c.session),
+          !input.isEmpty, (c.rimeAPI.get_input(c.session).map {String(cString:$0)} ?? "")==input,
+          let current=captureContext(), current==expected else { return false }
+    return true
+  }
+  private func contextCacheKey(_ snapshot:JevLineSnapshot, raw:String) -> String {
+    guard let c=controller else { return "" }
+    let parts=[schema,c.currentApp,String(c.session),String(focusGeneration),snapshot.position.client,
+               NSStringFromRange(snapshot.position.selected),NSStringFromRange(snapshot.position.marked),
+               raw,confirmedPrefix,snapshot.context,snapshot.source,activeProviders.joined(separator:",")]
+    return String(data:try! JSONSerialization.data(withJSONObject:parts),encoding:.utf8)!
+  }
   func beforeMenu(schema: String) {
     if !self.schema.isEmpty && self.schema != schema { invalidate(clearContext: true) }
     self.schema=schema
-    // insertText may update a browser's selection on its next event-loop turn.
-    // The same commit refresh must not discard the newly committed context.
-    verifyContinuity(allowPendingCommit:true)
-    guard !applying, !sortingLocked, !committingLocked, eligible, activeProviders.count==1, !context.isEmpty, recentContext.lastCheckReason=="verified", confirmedPrefix.isEmpty, let c=controller,
-          let pointer=c.rimeAPI.get_input(c.session) else { return }
-    let raw=String(cString:pointer)
-    guard !raw.isEmpty else { return }
-    cacheKey=[schema,c.currentApp,String(c.session),String(focusGeneration),String(describing:clientIdentity),raw,context,activeProviders.joined(separator:",")].joined(separator:"\u{1f}")
-    guard property("_jev_result").isEmpty, let entry=cache[cacheKey], Date().timeIntervalSince(entry.created)<60 else { return }
-    pendingCache=entry
-    let wire=placementWire(entry,raw:raw)
-    set("_jev_result",wire)
   }
   func afterRender(candidates: [String], page: Int, prefix: String, displayCode: String) {
     lastReason="render"
@@ -575,7 +619,7 @@ final class JevInputAdapter {
     visible = candidates; visiblePage = page
     guard !applying, let c = controller, eligible, !c.rimeAPI.get_option(c.session,"ascii_mode") else { lastReason="disabled_or_applying";return }
     let raw = c.rimeAPI.get_input(c.session).map { String(cString:$0) } ?? ""
-    guard !raw.isEmpty else { modelCoordinators.values.forEach {$0.invalidate()}; identity=""; input=""; badges.removeAll();modelChoices.removeAll(); return }
+    guard !raw.isEmpty else { invalidate(); return }
     if !property("_jev_applied").isEmpty {return}
     guard let data = property("_jev_snapshot").data(using:.utf8),
           let snap = try? JSONSerialization.jsonObject(with:data) as? [String:Any], snap["input"] as? String == raw,
@@ -583,21 +627,28 @@ final class JevInputAdapter {
     let pinyin=snap["pinyin"] as? String ?? raw
     let limit=JevCandidateWindow.limit(pinyin:pinyin,displayCode:displayCode,provider:activeProviders.first(where:JevProviders.isTev) ?? activeProviders.first ?? "local")
     let list=decodeRows(rows,limit:limit)
-    let modelContext=String((context+confirmedPrefix).suffix(80))
-    guard list.count >= 2, page == 0, list.first?.text == candidates.first, !modelContext.isEmpty else { lastReason=modelContext.isEmpty ? "no_context" : "candidate_mismatch";return }
+    guard list.count >= 2, page == 0, list.first?.text == candidates.first else { lastReason="candidate_mismatch";return }
     guard !sortingLocked, !committingLocked else {return}
-    let seed = "\(c.session)|\(epoch)|\(focusGeneration)|\(schema)|\(c.currentApp)|\(String(describing:clientIdentity))|\(raw)|\(pinyin)|\(limit)|\(activeProviders.joined(separator:","))|\(modelContext)"
+    let seed = "\(c.session)|\(epoch)|\(focusGeneration)|\(schema)|\(c.currentApp)|\(raw)|\(pinyin)|\(limit)|\(activeProviders.joined(separator:","))|\(confirmedPrefix)"
     guard preparedSeed != seed else {return}
     preparedSeed=seed;samplingSeed=seed
     samplingScanned=0;samplingBatches=0
     let startedAt=coordinator.clock.nowMilliseconds()
+    requestStartedAt=startedAt
     let firstKeys=Array(list.prefix(8)).map(\.key)
-    if limit==8 || list.count>=limit {
-      submitSample(seed:seed,raw:raw,pinyin:pinyin,modelContext:modelContext,list:list,abbreviated:limit>8,startedAt:startedAt)
-    } else {
-      lastReason="sampling"
-      DispatchQueue.main.async { [weak self] in
-        self?.sampleBatch(seed:seed,raw:raw,modelContext:modelContext,firstKeys:firstKeys,limit:limit,offset:0,startedAt:startedAt)
+    // Coalesce text IPC behind the same debounce used by model dispatch. The
+    // coordinator subtracts this elapsed time rather than adding another debounce.
+    DispatchQueue.main.asyncAfter(deadline:.now()+Double(coordinator.configuration.debounceMilliseconds)/1000) { [weak self] in
+      guard let self, self.samplingSeed==seed, !self.sortingLocked, !self.committingLocked,
+            let snapshot=self.captureContext() else { return }
+      guard snapshot.position.base != nil else { self.lastReason="unbound_cursor";return }
+      self.requestSnapshot=snapshot
+      self.requestCacheKey=self.contextCacheKey(snapshot,raw:raw)
+      if limit==8 || list.count>=limit {
+        self.submitSample(seed:seed,raw:raw,pinyin:pinyin,modelContext:snapshot.context,list:list,abbreviated:limit>8,startedAt:startedAt)
+      } else {
+        self.lastReason="sampling"
+        self.sampleBatch(seed:seed,raw:raw,modelContext:snapshot.context,firstKeys:firstKeys,limit:limit,offset:0,startedAt:startedAt)
       }
     }
   }
@@ -641,8 +692,14 @@ final class JevInputAdapter {
   private func submitSample(seed:String,raw:String,pinyin:String,modelContext:String,list:[JevCandidate],abbreviated:Bool,startedAt:Int64) {
     guard samplingSeed==seed, !sortingLocked, !committingLocked, list.count>=2 else {return}
     samplingSeed=""
-    identity=seed+"|"+list.map(\.key).joined(separator:",")
-    input=raw;baseline=list;requestCacheKey=cacheKey;requestContext=modelContext
+    identity=seed+"|"+requestCacheKey+"|"+list.map(\.key).joined(separator:",")
+    input=raw;baseline=list
+    if activeProviders.count==1, confirmedPrefix.isEmpty, requestSnapshot?.position.base != nil,
+       requestSnapshot?.source != "no_context", let entry=cache[requestCacheKey],
+       Date().timeIntervalSince(entry.created)<60, entry.count==list.count,
+       entry.signature==Self.hex(list.map(\.key).joined(separator:"\n")), requestIsCurrent() {
+      installEntry(entry,raw:raw);lastReason="cached";return
+    }
     set("_jev_epoch",String(epoch))
     modelChoices.removeAll()
     JevRuntimeManager.shared.ensureRunning(providers:activeProviders)
@@ -665,21 +722,25 @@ final class JevInputAdapter {
     guard let c=controller,eligible,!applying,!committingLocked,!sortingLocked,c.rimeAPI.find_session(c.session),
           modelCoordinators[decision.provider]?.currentIdentity==identity,activeProviders.contains(decision.provider),
           (c.rimeAPI.get_input(c.session).map {String(cString:$0)} ?? "")==input,baseline.contains(decision.candidate) else {return}
-    verifyContinuity()
-    guard !requestContext.isEmpty,String((context+confirmedPrefix).suffix(80))==requestContext else {return}
-    guard decision.action == .promote else {lastReason="late_no_stable_space";return}
+    guard requestIsCurrent() else {lastReason="context_changed_before_apply";return}
+    guard decision.action == .promote, remainingBudget(for:decision.provider) > 0 else {lastReason="late_no_stable_space";return}
     modelChoices[decision.provider]=decision.candidate
     let entries=JevCandidatePlan.entries(baseline:baseline,choices:modelChoices,priority:activeProviders)
     guard !entries.isEmpty else {return}
     let entry=CachedChoice(recommendations:entries,signature:Self.hex(baseline.map(\.key).joined(separator:"\n")),count:baseline.count,created:.now)
-    let wire=placementWire(entry,raw:input)
+    installEntry(entry,raw:input)
+  }
+  private func installEntry(_ entry:CachedChoice,raw:String) {
+    guard let c=controller else { return }
+    let wire=placementWire(entry,raw:raw)
     applying=true;set("_jev_result",wire)
     var rebuilt=RimeContext_stdbool.rimeStructInit()
     if c.rimeAPI.get_context(c.session,&rebuilt) {_ = c.rimeAPI.free_context(&rebuilt)}
     if property("_jev_applied")==wire {
       installBadges(entry)
       if cache.count>=128,let oldest=cache.min(by:{$0.value.created<$1.value.created})?.key {cache.removeValue(forKey:oldest)}
-      if confirmedPrefix.isEmpty {cache[requestCacheKey]=entry}
+      if activeProviders.count==1, confirmedPrefix.isEmpty, requestSnapshot?.position.base != nil,
+         requestSnapshot?.source != "no_context" {cache[requestCacheKey]=entry}
     } else {set("_jev_result","");badges.removeAll()}
     c.rimeUpdate();applying=false
   }
@@ -695,9 +756,6 @@ final class JevInputAdapter {
   }
   func badge(for word:String,index:Int)->NSAttributedString? {
     guard eligible else {return nil}
-    if let entry=pendingCache,property("_jev_applied")==property("_jev_result"), !property("_jev_applied").isEmpty {
-      installBadges(entry);pendingCache=nil
-    }
     guard index<visibleKeys.count,let key=visibleKeys[index],let label=badges[key] else {return nil}
     return JevBadge.render(label)
   }

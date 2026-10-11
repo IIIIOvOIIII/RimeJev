@@ -1,6 +1,6 @@
 [project]
 name = "rime-jev"
-version = "0.4.1"
+version = "0.4.2"
 description = "Nonblocking contextual candidate decisions for Squirrel and Rime"
 requires-python = ">=3.12,<3.14"
 dependencies = [

@@ -217,7 +217,11 @@ class TevProvider:
             completions = {candidate.id: request.context + candidate.text for candidate in request.candidates}
             if sum(len(text.encode("utf-8")) for text in completions.values()) <= FULL_COMPLETION_CRITERIA_BYTES:
                 criteria = completions
-        criteria["none"] = "No declared candidate naturally continues the preceding context."
+        criteria["none"] = (
+            "The current pinyin and declared candidates do not support a choice."
+            if request.context == "" else
+            "No declared candidate naturally continues the preceding context."
+        )
         body = json.dumps(
             {
                 "model": self.model_name,

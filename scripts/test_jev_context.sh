@@ -13,3 +13,9 @@ swiftc \
   -o "$temporary_dir/JevCommittedContextTests"
 
 "$temporary_dir/JevCommittedContextTests"
+
+swiftc -parse-as-library \
+  "$project_dir/native/JevLineContext.swift" \
+  "$project_dir/native/tests/JevLineContextTests.swift" \
+  -o "$temporary_dir/JevLineContextTests"
+"$temporary_dir/JevLineContextTests"

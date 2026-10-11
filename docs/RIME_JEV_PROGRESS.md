@@ -83,3 +83,21 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Result: source-package preparation achieved. The tested receipt matches `8138c198ab16225026039b4c56969db9f617bc96`; subsequent changes are Markdown only. README and LLM_INSTALL now select `v0.4.1`. Existing preflight and local installation evidence remain applicable.
 - Publication record: [GitHub v0.4.1](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.4.1). Remote main/tag identity, final credential scan and the published release record are checked during publication; detailed receipts remain outside the repository.
 - Next: complete the final scan, fast-forward main and publish/verify the release. No runtime reinstall or settings changes are required; the live global default remains off.
+
+## 2026-10-11 — 0.4.2 current-line context (approved)
+
+- Current work: implement the approved current-line context reader and permit candidate decisions with empty preceding text.
+- Expected result: use existing/pasted text before the composition in the same logical line, with an 80-character limit, stable request identity and original-candidate fallback. Preserve all existing user settings, including the latest global profile.
+- Scope: native reader/integration, bounded regression tests, full preflight and local deployment; no GitHub main merge or release tag in this task. Per failure class, at most five recovery attempts; use synthetic host text and small live acceptance checks, no bulk model evaluation.
+- Result: baseline inspected at v0.4.1 (`1f227b4`); implementation beginning.
+- Next: implement/test bounded context snapshots and provider empty-context behavior, then build/install and verify actual typing.
+
+### Implementation and review
+
+- Current work: bounded same-line snapshots, native integration and empty-context provider instructions implemented.
+- Result: initial native build/signature and context/parser tests passed; 423 Python tests passed. Focused provider tests cover TT, Jev and both Tev sizes without real credentials or calls. Review caught unknown-caret equality and redundant eager reads: unbound cursors now abstain, and acquisition coalesces behind the existing debounce with read time deducted from model deadlines.
+- Latest local preference: the user has since selected a dual-model global default. Preserve the current profile as found, rather than restoring the historical off choice. No settings are changed for implementation tests.
+- Limitation: the public IMK read API is synchronous; no unsupported background-thread calls are introduced. Bounded reads, debounce and five-second backoff reduce repeated slow-host work, but cannot interrupt the first host call. Live host timing remains to be checked.
+- Next: finish actual adapter integration tests and full preflight, then local install and synthetic host acceptance.
+
+- Adapter integration result: 15 actual-adapter/main-runloop scenarios passed with in-memory host/runtime boundaries. Fresh pasted text and known-position empty context dispatch and apply; unknown position, changed text/caret and superseded work are rejected. Both provider priorities and remaining deadline accounting pass. Full Rime/UI checks follow separately.

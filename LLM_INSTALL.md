@@ -1,4 +1,4 @@
-# LLM_INSTALL — RimeJev 0.4.1
+# LLM_INSTALL — RimeJev 0.4.2
 
 This is the dedicated installation contract for an LLM helping a user. 中文：这是提供给安装助手的独立指引；先检查、备份、验证，再安装，不能把构建成功当成真实输入验收。
 
@@ -30,8 +30,8 @@ If these are missing, stop the dependent step and explain what is missing. Use o
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout v0.4.1
-git rev-parse HEAD  # Record and retain the exact release revision used for installation.
+git checkout feat/current-line-context
+git rev-parse HEAD  # Record and retain the exact reviewed revision used for installation.
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 ```
@@ -154,6 +154,10 @@ Use a dedicated empty input window and select **鼠须管 Jev**. First verify ba
 Check model switching and each model’s timeout field: save, close/reopen, switch to another model, return, and restore the default. Existing per-application choices must stay intact.
 
 Check these cases:
+
+- Prepopulate a dedicated test field with “我现在又想” using a paste or host-side fixture, wait longer than ten seconds, then type `sj`. Confirm a current-line read and a decision request, without requiring a particular predicted word.
+- Repeat with “汽车” + `youxiang`, a new empty logical line, and a caret placed before trailing text. Only preceding same-line text may be used; empty context may still produce an abstaining model call.
+- Move the caret or change the field while a response is pending; the old response must not apply. Use synthetic contents and record only counts/lengths/status, not a real document.
 
 - If a timely confident model decision matches the original first word, the order stays unchanged and that word gets `✦ Jev` or `✦ TT` / `✦ Tev`.
 - In dual mode, if neither model matches first, slots 2/3 follow the configured order. If either matches first, badge first and put the other distinct result second. The next unused native word follows. Same-word recommendations merge source labels without duplication. Missing results leave native fillers. Single-model behavior remains first-preserved/second-recommended.

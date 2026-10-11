@@ -59,6 +59,13 @@ ABBREVIATED_INSTRUCTION = (
     "选择语法最通顺、语义最连贯、最符合日常表达习惯的一项。"
     "只有所有候选词都无法自然接续前文时才选择 none。"
 )
+EMPTY_CONTEXT_INSTRUCTION = (
+    "state.context is empty: there is no preceding text. Choose among the declared Rime "
+    "candidates using only the current pinyin and the candidates themselves. All declared "
+    "candidates have already passed Rime's pinyin matching, including abbreviated pinyin. "
+    "Do not invent preceding context, a situation, or the user's intent. In this empty-context "
+    "case, you may choose none when the pinyin and candidates do not support a choice."
+)
 JEV_RATE_LIMIT_PER_SECOND = 4
 JEV_COOLDOWN_SECONDS = 30.0
 JEV_MAX_RETRY_AFTER_SECONDS = 60.0
@@ -323,6 +330,8 @@ def _candidate_options(request: DecisionRequest) -> tuple[str, ...]:
 
 
 def _decision_instruction(request: DecisionRequest) -> str:
+    if request.context == "":
+        return EMPTY_CONTEXT_INSTRUCTION
     return ABBREVIATED_INSTRUCTION if request.abbreviated else DECISION_INSTRUCTION
 
 
@@ -1462,10 +1471,13 @@ class JevProvider:
             )
             for index, candidate in enumerate(request.candidates)
         }
-        criteria["none"] = (
-            "Use none only when every declared candidate is inapplicable; "
-            "uncertainty about the user's intent alone is not a reason to choose none."
-        )
+        if request.context == "":
+            criteria["none"] = "The current pinyin and declared candidates do not support a choice."
+        else:
+            criteria["none"] = (
+                "Use none only when every declared candidate is inapplicable; "
+                "uncertainty about the user's intent alone is not a reason to choose none."
+            )
         body = {
             "state": {"context": request.context, "pinyin": request.pinyin},
             "model": self.model_name,
