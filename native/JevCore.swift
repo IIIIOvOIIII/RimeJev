@@ -46,15 +46,66 @@ public struct JevInputSnapshot: Equatable {
 
 public typealias InputSnapshot = JevInputSnapshot
 
+public enum JevProviders {
+    public static let modes = ["off", "local", "tev-0.8b", "tev-4b", "jev"]
+    public static let local = ["local", "tev-0.8b", "tev-4b"]
+    public static let active = local + ["jev"]
+
+    public static func timeoutMilliseconds(provider: String, overrides: [String: Int64]? = nil) -> Int64 {
+        if let timeout = overrides?[provider], (300...10000).contains(timeout) {
+            return timeout
+        }
+        return provider == "tev-4b" ? 2000 : 600
+    }
+
+    public static func timeouts(overrides: [String: Int64]? = nil) -> [String: Int64] {
+        Dictionary(uniqueKeysWithValues: active.map {
+            ($0, timeoutMilliseconds(provider: $0, overrides: overrides))
+        })
+    }
+
+    public static func parseTimeoutSeconds(_ text: String) -> Int64? {
+        guard let seconds = Double(text.trimmingCharacters(in: .whitespacesAndNewlines)),
+              seconds.isFinite, (0.3...10.0).contains(seconds) else {
+            return nil
+        }
+        return Int64((seconds * 1000).rounded())
+    }
+
+    public static func isTev(_ provider: String) -> Bool {
+        provider == "tev-0.8b" || provider == "tev-4b"
+    }
+
+    public static func name(_ provider: String) -> String {
+        switch provider {
+        case "local": return "TT · this-that-model 1.2"
+        case "tev-0.8b": return "Tev 0.8B"
+        case "tev-4b": return "Tev 4B"
+        case "jev": return "Jev 云端"
+        default: return "万象原有候选"
+        }
+    }
+
+    public static func downloadArguments(provider: String, projectRoot: String, modelPath: String) -> [String]? {
+        if provider == "local" {
+            return [projectRoot + "/scripts/download_model.py", "--destination", modelPath]
+        }
+        if isTev(provider) {
+            return [projectRoot + "/scripts/download_tev.py", "--model", provider]
+        }
+        return nil
+    }
+}
+
 public enum JevCandidateWindow {
-    public static func limit(pinyin: String, displayCode: String) -> Int {
+    public static func limit(pinyin: String, displayCode: String, provider: String = "local") -> Int {
         let initials: Set<String> = ["b","p","m","f","d","t","n","l","g","k","h","j","q","x","zh","ch","sh","r","z","c","s","y","w"]
         let parts=displayCode.lowercased().split { $0.isWhitespace || $0 == "'" }.map(String.init)
         let raw=pinyin.lowercased()
         let consonants=Set("bcdfghjklmnpqrstwxyz")
         let abbreviated=parts.count > 1 && parts.contains(where:initials.contains)
         let initialsOnly=raw.count >= 2 && raw.allSatisfy {consonants.contains($0)}
-        return abbreviated || initialsOnly ? 24 : 8
+        return abbreviated || initialsOnly ? (JevProviders.isTev(provider) ? 23 : 24) : 8
     }
 }
 
@@ -146,6 +197,18 @@ public struct JevDecisionPolicy: Equatable {
     public let thresholdsByProvider: [String: JevDecisionThreshold]
     public let probabilitySumTolerance: Double
 
+    public static func inputMethod(localProbability: Double = 0.65, jevProbability: Double = 0.55,
+                                   tevProbability: Double = 0.65) -> JevDecisionPolicy {
+        let tev = JevDecisionThreshold(minimumProbability: tevProbability, minimumMargin: 0.15)
+        return JevDecisionPolicy(
+            defaultThreshold: JevDecisionThreshold(minimumProbability: 0.85, minimumMargin: 0.15),
+            thresholdsByProvider: [
+                "local": JevDecisionThreshold(minimumProbability: localProbability, minimumMargin: 0.15),
+                "jev": JevDecisionThreshold(minimumProbability: jevProbability, minimumMargin: 0.15),
+                "tev-0.8b": tev, "tev-4b": tev
+            ], probabilitySumTolerance: 0.002)
+    }
+
     public init(
         defaultThreshold: JevDecisionThreshold = JevDecisionThreshold(),
         thresholdsByProvider: [String: JevDecisionThreshold] = [:],
@@ -170,29 +233,40 @@ public struct JevCoordinatorConfiguration: Equatable {
     public let annotateDeadlineMilliseconds: Int64
     public let maxAgeMilliseconds: Int64
     public let policy: JevDecisionPolicy
+    public let providerTimeouts: [String: Int64]
 
     public init(
         debounceMilliseconds: Int64 = 260,
         promoteDeadlineMilliseconds: Int64 = 600,
         annotateDeadlineMilliseconds: Int64 = 1500,
         maxAgeMilliseconds: Int64 = 1500,
-        policy: JevDecisionPolicy = JevDecisionPolicy()
+        policy: JevDecisionPolicy = JevDecisionPolicy(),
+        providerTimeouts: [String: Int64] = [:]
     ) {
         precondition(debounceMilliseconds >= 0)
         precondition(promoteDeadlineMilliseconds >= 0)
         precondition(annotateDeadlineMilliseconds >= promoteDeadlineMilliseconds)
         precondition(maxAgeMilliseconds >= 0)
+        precondition(providerTimeouts.values.allSatisfy { $0 >= 0 })
         self.debounceMilliseconds = debounceMilliseconds
         self.promoteDeadlineMilliseconds = promoteDeadlineMilliseconds
         self.annotateDeadlineMilliseconds = annotateDeadlineMilliseconds
         self.maxAgeMilliseconds = maxAgeMilliseconds
         self.policy = policy
+        self.providerTimeouts = providerTimeouts
     }
 
-    /// Both the coordinator deadline and the wire max_age_ms honor the
-    /// smaller of the display policy and the request's explicit max age.
+    /// Unconfigured providers retain the generic display and max-age limits.
     public var effectiveDeadlineMilliseconds: Int64 {
         min(annotateDeadlineMilliseconds, maxAgeMilliseconds)
+    }
+
+    public func promoteDeadlineMilliseconds(for provider: String) -> Int64 {
+        providerTimeouts[provider] ?? promoteDeadlineMilliseconds
+    }
+
+    public func effectiveDeadlineMilliseconds(for provider: String) -> Int64 {
+        providerTimeouts[provider] ?? effectiveDeadlineMilliseconds
     }
 }
 
@@ -694,12 +768,13 @@ public final class JevDecisionCoordinator {
 
         let now = clock.nowMilliseconds()
         let age = max(0, now - version.startedAtMilliseconds)
-        let finalDeadline = configuration.effectiveDeadlineMilliseconds
+        let finalDeadline = configuration.effectiveDeadlineMilliseconds(for: version.snapshot.provider)
         guard age < finalDeadline else {
             expire(version)
             return
         }
 
+        let remaining = finalDeadline - age
         let requestID = requestIDFactory()
         let request = JevDecisionRequest(
             id: requestID,
@@ -711,14 +786,13 @@ public final class JevDecisionCoordinator {
             candidates: version.snapshot.candidates.map {
                 JevRequestCandidate(id: $0.id, text: $0.text)
             },
-            maxAgeMilliseconds: finalDeadline,
+            maxAgeMilliseconds: remaining,
             provider: version.snapshot.provider
         )
         version.request = request
 
-        let remaining = max(0, finalDeadline - age)
-        // The deadline is inclusive: a response at exactly max_age_ms is
-        // still eligible, while the next monotonic millisecond is expired.
+        // The final deadline is inclusive and measured from snapshot start,
+        // including sampling and debounce. The wire budget is only what remains.
         let deadlineDelay = remaining == Int64.max ? remaining : remaining + 1
         version.deadlineHandle = scheduler.schedule(after: deadlineDelay) { [weak self, weak version] in
             guard let self, let version else { return }
@@ -756,7 +830,7 @@ public final class JevDecisionCoordinator {
         }
 
         let elapsed = max(0, clock.nowMilliseconds() - version.startedAtMilliseconds)
-        let finalDeadline = configuration.effectiveDeadlineMilliseconds
+        let finalDeadline = configuration.effectiveDeadlineMilliseconds(for: version.snapshot.provider)
         guard elapsed <= finalDeadline else {
             expire(version)
             return
@@ -778,7 +852,7 @@ public final class JevDecisionCoordinator {
         guard !version.commitLocked else { lastOutcome="commit_locked"; return }
 
         let action: JevDecisionAction
-        if !version.sortingLocked && elapsed < configuration.promoteDeadlineMilliseconds {
+        if !version.sortingLocked && elapsed < configuration.promoteDeadlineMilliseconds(for: version.snapshot.provider) {
             action = .promote
         } else if elapsed <= finalDeadline {
             // Sorting lock intentionally degrades promotion to annotation,

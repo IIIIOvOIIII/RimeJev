@@ -16,3 +16,10 @@
 - [Wanxiang](https://github.com/amzxyz/rime_wanxiang): installed separately by the user. No personal dictionary, learned frequency database, or private input history is redistributed.
 
 Each external project retains its own copyright and licensing terms. Synthetic regression fixtures and evaluation sentences in this repository are test data, not real user input or evidence of model accuracy.
+
+
+## Tev1 and its local runtime
+
+[Tev1](https://github.com/togethercomputer/tev1), by Together AI, is MIT-licensed code with separately licensed model weights. This integration uses the official [Ollama Tev1 distribution](https://ollama.com/library/tev1) through the local System One API. Tev model manifests retain their license layers; model weights are never committed.
+
+The [Ollama](https://github.com/ollama/ollama) runtime is obtained from the pinned official v0.40.3 macOS release, verified by SHA-256, and retains bundled dependency notices. It is a local download, not a vendored binary in this Git repository. The existing system Ollama installation is not modified.

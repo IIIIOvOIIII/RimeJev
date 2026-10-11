@@ -172,7 +172,9 @@ def main(protected_fixture):
         ('key-3', {'commit_key': ord('3')}, 2),
     ]
     partial_raw_count = None
-    for provider in ['local', 'jev']:
+    for provider in ['local', 'jev', 'tev-0.8b', 'tev-4b']:
+        decision_limit = 23 if provider.startswith('tev-') else 24
+        expanded = dict(sj, score_limit=decision_limit, promote_index=index)
         for label, case, target_index in [
             ('first-hit', youxiang, 0),
             ('already-second', youxiang, 1),
@@ -186,7 +188,7 @@ def main(protected_fixture):
                 assert row['provider'] == provider
                 if case.get('sample_candidates'):
                     sampling_unchanged(row)
-                    assert row['score_limit'] == row['promotion_count'] == 24
+                    assert row['score_limit'] == row['promotion_count'] == decision_limit
                     assert row['sampled_snapshot'] == discovery['sampled_snapshot']
                     assert row['candidates'] == discovery['candidates']
                 else:
@@ -256,7 +258,7 @@ def main(protected_fixture):
     return {
         'passed': True, 'status': 'passed', 'probe_cases': len(rows), 'candidate_count': 128,
         'recommendation_source': 'controlled property injection; no model, cloud, or UI calls',
-        'providers': ['local', 'jev'], 'placement': 'original first preserved; other target moves to second',
+        'providers': ['local', 'jev', 'tev-0.8b', 'tev-4b'], 'placement': 'original first preserved; other target moves to second',
         'target_ranks': [1, 2, 3, index + 1], 'submission_methods': [action for action, _, _ in submissions],
         'noresult_unchanged': True, 'stale_unchanged': True, 'nonexistent_target_rejected': True,
         'disable_restores': True, 'stale_after_valid_restores': True, 'repeat_and_reapply_stable': True,
@@ -300,6 +302,6 @@ if __name__ == '__main__':
         (evidence / 'bridge-tests.log').write_text('\n'.join(logs))
         (evidence / 'bridge-probe-rows.json').write_text(json.dumps(rows, ensure_ascii=False, indent=2))
         (evidence / 'bridge-tests.json').write_text(json.dumps(report, ensure_ascii=False, indent=2))
-    print(f"Real Rime bridge PASS: {len(rows)} isolated probes; both providers place existing targets second; "
+    print(f"Real Rime bridge PASS: {len(rows)} isolated probes; all providers place existing targets second; "
           'direct/key commits, 128-candidate order/count, fallback, reapply, partial composition and sampling 8/24/64. '
           'Recommendations were injected; no model or UI acceptance is claimed.')

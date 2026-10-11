@@ -61,7 +61,7 @@ function M.func(input, env)
   local result = ctx:get_property('_jev_result') or ''
   local epoch, code, target, count, signature, source = result:match('^([^|]*)|([^|]*)|([^|]*)|(%d+)|([^|]*)|([^|]*)$')
   local active = epoch and epoch == ctx:get_property('_jev_epoch') and code == hex(raw) and
-    (source == 'jev' or source == 'local')
+    (source == 'jev' or source == 'local' or source == 'tev-0.8b' or source == 'tev-4b')
   if not active then
     ctx:set_property('_jev_applied', '')
     snapshot(ctx, raw, rows, false)

@@ -15,6 +15,8 @@ struct JevSettings: Codable {
   var vaultTokenHelper: String?
   var localThreshold = 0.65
   var jevThreshold = 0.55
+  var tevThreshold: Double?
+  var timeoutOverrides: [String: Int64]?
   static let support = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Rime-Jev")
   static let file = support.appendingPathComponent("settings.json")
   static var current: JevSettings = {
@@ -35,11 +37,31 @@ final class JevSocketCall: JevCancellable {
 }
 
 final class JevRuntimeManager {
+  private struct Configuration: Equatable {
+    let provider: String
+    let projectRoot: String
+    let modelPath: String
+    let vaultRef: String
+    let vaultURL: String?
+    let vaultTokenHelper: String?
+    init(provider: String, settings: JevSettings) {
+      self.provider=provider;projectRoot=settings.projectRoot;modelPath=settings.modelPath
+      vaultRef=settings.vaultRef;vaultURL=settings.vaultURL;vaultTokenHelper=settings.vaultTokenHelper
+    }
+  }
   static let shared = JevRuntimeManager()
   private let queue = DispatchQueue(label: "rime-jev.runtime", qos: .userInitiated)
+  private let selectionLock = NSLock()
+  private var selection: Configuration?
+  private var generation: UInt64 = 0
+  private var readyGeneration: UInt64?
   private var process: Process?
   private var runningProvider = ""
+  private var runningConfiguration: Configuration?
+  private var shutdownWaitToken: UInt64?
+  private var shutdownWaitStarted: TimeInterval = 0
   private var lastLaunch = Date.distantPast
+  private var lastLaunchConfiguration: Configuration?
   private var resourceBackoff = Date.distantPast
   private var pressureMonitor: DispatchSourceMemoryPressure?
   private init() {
@@ -47,31 +69,89 @@ final class JevRuntimeManager {
     monitor.setEventHandler { [weak self] in
       guard let self else{return}
       self.resourceBackoff=Date().addingTimeInterval(60)
-      _ = Self.exchange(self.socketPath("local"),payload:Data("{\"id\":\"pressure\",\"op\":\"shutdown\"}".utf8))
-      if self.runningProvider=="local" {self.process?.terminate();self.process=nil;self.runningProvider=""}
+      self.selectionLock.lock()
+      if let selection=self.selection, JevProviders.local.contains(selection.provider) {
+        self.generation &+= 1;self.readyGeneration=nil
+      }
+      self.selectionLock.unlock()
+      for provider in JevProviders.local { _ = self.release(provider) }
     }
     pressureMonitor=monitor;monitor.resume()
   }
   func socketPath(_ provider: String) -> String { JevSettings.support.appendingPathComponent("\(provider).sock").path }
+  private func select(_ configuration: Configuration?) -> UInt64 {
+    selectionLock.lock();defer {selectionLock.unlock()}
+    if selection != configuration {
+      selection=configuration;generation &+= 1;readyGeneration=nil
+    }
+    return generation
+  }
+  private func isCurrent(_ token: UInt64, ready: Bool = false) -> Bool {
+    selectionLock.lock();defer {selectionLock.unlock()}
+    return token==generation && (!ready || readyGeneration==token)
+  }
+  private func markReady(_ token: UInt64) {
+    selectionLock.lock();defer {selectionLock.unlock()}
+    if token==generation {readyGeneration=token}
+  }
+  // Wait for runtime shutdown on the background queue before starting its successor.
+  private func release(_ provider: String) -> Bool {
+    let path=socketPath(provider)
+    let owned=runningProvider==provider ? process : nil
+    _ = Self.exchange(path,payload:Data("{\"id\":\"stop\",\"op\":\"shutdown\"}".utf8))
+    let deadline=ProcessInfo.processInfo.systemUptime+3
+    while FileManager.default.fileExists(atPath:path) || owned?.isRunning==true {
+      if ProcessInfo.processInfo.systemUptime>=deadline {return false}
+      Thread.sleep(forTimeInterval:0.05)
+    }
+    if runningProvider==provider {process=nil;runningProvider="";runningConfiguration=nil}
+    return true
+  }
   func ensureRunning(_ provider: String) {
     let settings = JevSettings.current
-    guard ["local", "jev"].contains(provider) else { return }
+    guard JevProviders.active.contains(provider) else { return }
+    let configuration=Configuration(provider:provider,settings:settings)
+    let token=select(configuration)
     queue.async { [self] in
-      if provider=="local" && resourceBackoff>Date() {return}
-      if process?.isRunning == true && runningProvider == provider { return }
-      if Date().timeIntervalSince(lastLaunch) < 3 { return }
+      guard isCurrent(token) else {return}
+      if runningConfiguration != configuration {
+        if shutdownWaitToken != token {
+          shutdownWaitToken=token;shutdownWaitStarted=ProcessInfo.processInfo.systemUptime
+        }
+        var released=true
+        for previous in JevProviders.active where previous != provider || runningProvider==provider {
+          if !release(previous) {released=false}
+        }
+        guard released else {
+          // A cold model can still be finishing shutdown. Retry only this
+          // selection, within the Python shutdown bound, without another key.
+          if isCurrent(token), ProcessInfo.processInfo.systemUptime-shutdownWaitStarted < 70 {
+            queue.asyncAfter(deadline:.now()+0.25) { [weak self] in
+              guard let self, self.isCurrent(token) else {return}
+              self.ensureRunning(provider)
+            }
+          }
+          return
+        }
+        guard isCurrent(token) else {return}
+      }
+      if JevProviders.local.contains(provider) && resourceBackoff>Date() {return}
+      if process?.isRunning == true && runningConfiguration == configuration {markReady(token);return}
+      if lastLaunchConfiguration==configuration && Date().timeIntervalSince(lastLaunch) < 3 { return }
       if let data=Self.exchange(socketPath(provider),payload:Data("{\"id\":\"reuse\",\"op\":\"health\"}".utf8)),
          let health=try? JSONSerialization.jsonObject(with:data) as? [String:Any], health["provider"] as? String==provider {
-        runningProvider=provider;return
+        runningProvider=provider;runningConfiguration=configuration;markReady(token);return
       }
-      process?.terminate()
-      lastLaunch = .now
+      guard isCurrent(token) else {return}
+      lastLaunch = .now;lastLaunchConfiguration=configuration
       let task = Process()
       task.executableURL = URL(fileURLWithPath: settings.projectRoot).appendingPathComponent(".venv/bin/python")
+      task.currentDirectoryURL = URL(fileURLWithPath: settings.projectRoot)
       task.arguments = ["-m", "rime_jev.runtime", "--socket", socketPath(provider), "--provider", provider,
                         "--model-path", settings.modelPath, "--vault-ref", settings.vaultRef]
       var env = ProcessInfo.processInfo.environment
       env["PYTHONPATH"] = settings.projectRoot + "/src"
+      env["RIME_JEV_PROJECT_ROOT"] = settings.projectRoot
       env["HF_HUB_OFFLINE"] = "1"
       env["TOKENIZERS_PARALLELISM"] = "false"
       if let url=settings.vaultURL, !url.isEmpty { env["RIME_JEV_VAULT_URL"]=url }
@@ -79,31 +159,55 @@ final class JevRuntimeManager {
       task.environment = env
       task.standardOutput = FileHandle.nullDevice
       task.standardError = FileHandle.nullDevice
-      do { try task.run(); process = task; runningProvider = provider } catch { process = nil }
+      do {
+        try task.run();process=task;runningProvider=provider;runningConfiguration=configuration
+        markReady(token)
+      } catch {process=nil;runningProvider="";runningConfiguration=nil}
     }
   }
-  func stop() { queue.async {
-    for provider in ["local","jev"] { _ = Self.exchange(self.socketPath(provider),payload:Data("{\"id\":\"stop\",\"op\":\"shutdown\"}".utf8)) }
-    self.process?.terminate(); self.process = nil; self.runningProvider = ""; self.lastLaunch = .distantPast
-  } }
+  func stop() {
+    let token=select(nil)
+    queue.async {
+      guard self.isCurrent(token) else {return}
+      for provider in JevProviders.active { _ = self.release(provider) }
+      self.lastLaunch = .distantPast;self.lastLaunchConfiguration=nil
+    }
+  }
+  func reloadSelected(_ provider: String) {
+    selectionLock.lock()
+    guard selection?.provider==provider else {selectionLock.unlock();return}
+    generation &+= 1;readyGeneration=nil
+    let token=generation
+    selectionLock.unlock()
+    queue.async { [self] in
+      guard isCurrent(token) else {return}
+      runningConfiguration=nil;lastLaunch = .distantPast;lastLaunchConfiguration=nil
+      ensureRunning(provider)
+    }
+  }
   func send(_ request: JevDecisionRequest, provider: String, completion: @escaping (JevDecisionResponse) -> Void) -> JevCancellable {
     let call = JevSocketCall(), path = socketPath(provider)
-    DispatchQueue.global(qos: .userInitiated).async {
+    selectionLock.lock()
+    let token=generation, selected=selection?.provider==provider
+    selectionLock.unlock()
+    DispatchQueue.global(qos: .userInitiated).async { [self] in
       let failure = JevDecisionResponse(id: request.id, status: "unavailable", provider: provider, probabilities: [:])
       var response = failure
-      if !call.isCancelled, let payload = try? request.jsonData(), let data = Self.exchange(path, payload: payload),
+      if selected, isCurrent(token,ready:true), !call.isCancelled,
+         let payload = try? request.jsonData(), let data = Self.exchange(path, payload: payload, timeoutMilliseconds:request.maxAgeMilliseconds),
          let value = try? JSONDecoder().decode(JevDecisionResponse.self, from: data) { response = value }
       let delivered = response
-      DispatchQueue.main.async { if !call.isCancelled { completion(delivered) } }
+      DispatchQueue.main.async { if !call.isCancelled, self.isCurrent(token) { completion(delivered) } }
     }
     return call
   }
-  static func exchange(_ path: String, payload: Data) -> Data? {
+  static func exchange(_ path: String, payload: Data, timeoutMilliseconds: Int64 = 1500, onUnavailable: (() -> Void)? = nil) -> Data? {
     guard payload.count < 131072 else { return nil }
     let fd = Darwin.socket(AF_UNIX, SOCK_STREAM, 0)
     guard fd >= 0 else { return nil }
     defer { Darwin.close(fd) }
-    var timeout = timeval(tv_sec: 1, tv_usec: 500000), noSignal: Int32 = 1
+    let timeoutMilliseconds=max(1,min(timeoutMilliseconds,10000))
+    var timeout = timeval(tv_sec:Int(timeoutMilliseconds/1000),tv_usec:Int32(timeoutMilliseconds%1000)*1000), noSignal: Int32 = 1
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
     setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
     setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSignal, socklen_t(MemoryLayout<Int32>.size))
@@ -115,7 +219,10 @@ final class JevRuntimeManager {
     let connected = withUnsafePointer(to: &address) { p in
       p.withMemoryRebound(to: sockaddr.self, capacity: 1) { Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
     }
-    guard connected == 0 else { return nil }
+    guard connected == 0 else {
+      if errno==ENOENT || errno==ECONNREFUSED {onUnavailable?()}
+      return nil
+    }
     var request = payload; request.append(10)
     var sent = 0
     while sent < request.count {
@@ -139,6 +246,13 @@ final class JevInputAdapter {
   static func invalidateAll() {
     instances.removeAll { $0.value == nil }
     for instance in instances { instance.value?.invalidate(clearContext: true) }
+  }
+  static func reloadPolicies() {
+    instances.removeAll { $0.value == nil }
+    for instance in instances {
+      instance.value?.invalidate(clearContext:true)
+      instance.value?.rebuildCoordinator()
+    }
   }
   weak var controller: SquirrelInputController?
   private var epoch: UInt64 = 0
@@ -197,18 +311,17 @@ final class JevInputAdapter {
   var eligible: Bool {
     guard let controller else { return false }
     let settings = JevSettings.current
-    return !IsSecureEventInputEnabled() && ["local","jev"].contains(provider) && settings.allowedApps.contains(controller.currentApp)
+    return !IsSecureEventInputEnabled() && JevProviders.active.contains(provider) && settings.allowedApps.contains(controller.currentApp)
   }
   private func rebuildCoordinator() {
     let settings = JevSettings.current
-    coordinator = JevDecisionCoordinator(configuration: JevCoordinatorConfiguration(policy: JevDecisionPolicy(
-      defaultThreshold: JevDecisionThreshold(minimumProbability: 0.85, minimumMargin: 0.15),
-      thresholdsByProvider: ["local": JevDecisionThreshold(minimumProbability: settings.localThreshold, minimumMargin: 0.15),
-                             "jev": JevDecisionThreshold(minimumProbability: settings.jevThreshold, minimumMargin: 0.15)],
-      probabilitySumTolerance: 0.002)), transport: { [weak self] request, completion in
+    coordinator = JevDecisionCoordinator(configuration: JevCoordinatorConfiguration(policy: .inputMethod(
+      localProbability:settings.localThreshold,jevProbability:settings.jevThreshold,
+      tevProbability:settings.tevThreshold ?? 0.65),providerTimeouts:JevProviders.timeouts(overrides:settings.timeoutOverrides)), transport: { [weak self] request, completion in
         guard let self else { return JevSocketCall() }
         self.verifyContinuity()
-        guard self.eligible, String((self.context+self.confirmedPrefix).suffix(80)) == request.state.context else {
+        guard self.eligible, self.provider==request.provider,
+              String((self.context+self.confirmedPrefix).suffix(80)) == request.state.context else {
           self.lastReason="context_changed_before_request"
           completion(JevDecisionResponse(id:request.id,status:"unavailable",provider:request.provider))
           return JevSocketCall()
@@ -241,12 +354,12 @@ final class JevInputAdapter {
   }
   func activate() { activations += 1; invalidate(clearContext: true); if eligible { JevRuntimeManager.shared.ensureRunning(provider) } }
   func chooseMode(_ mode: String) {
-    invalidate(clearContext: true)
+    guard JevProviders.modes.contains(mode) else {return}
+    Self.invalidateAll()
     JevSettings.current.mode = mode
     if let app=controller?.currentApp { JevSettings.current.appModes[app]=mode }
     if let app = controller?.currentApp, !JevSettings.current.allowedApps.contains(app) { JevSettings.current.allowedApps.append(app) }
     JevSettings.save(); rebuildCoordinator()
-    JevRuntimeManager.shared.stop()
     if mode == "off" { JevRuntimeManager.shared.stop() } else { JevRuntimeManager.shared.ensureRunning(mode) }
     controller?.rimeUpdate()
   }
@@ -330,7 +443,7 @@ final class JevInputAdapter {
           let snap = try? JSONSerialization.jsonObject(with:data) as? [String:Any], snap["input"] as? String == raw,
           snap["protected"] as? Bool == false, let rows = snap["candidates"] as? [[String:String]] else { lastReason="snapshot_unavailable_or_protected";return }
     let pinyin=snap["pinyin"] as? String ?? raw
-    let limit=JevCandidateWindow.limit(pinyin:pinyin,displayCode:displayCode)
+    let limit=JevCandidateWindow.limit(pinyin:pinyin,displayCode:displayCode,provider:provider)
     let list=decodeRows(rows,limit:limit)
     let modelContext=String((context+confirmedPrefix).suffix(80))
     guard list.count >= 2, page == 0, list.first?.text == candidates.first, !modelContext.isEmpty else { lastReason=modelContext.isEmpty ? "no_context" : "candidate_mismatch";return }
@@ -455,21 +568,29 @@ final class JevPreferences: NSWindowController {
   private weak var inputOwner: SquirrelInputController?
   private let mode = NSPopUpButton()
   private let status = NSTextField(labelWithString: "")
+  private let model = NSTextField(wrappingLabelWithString: "")
+  private let install = NSButton()
+  private let timeoutField = NSTextField(string: "0.6")
+  private let timeoutSave = NSButton()
+  private let timeoutReset = NSButton()
+  private let timeoutHint = NSTextField(wrappingLabelWithString: "0.3–10 秒，从停止键入起计时；按模型保存，各应用共用。")
+  private var timeoutProvider: String?
   private let progress = NSProgressIndicator()
   private var timer: Timer?
   private var download: Process?
+  private var statusGeneration: UInt64 = 0
   static func show(for inputOwner: SquirrelInputController) {
     inputOwner.jev.invalidate(clearContext: true)
     if retained == nil { retained = JevPreferences(inputOwner: inputOwner) }
     retained?.inputOwner = inputOwner
-    retained?.mode.selectItem(at: ["off","local","jev"].firstIndex(of:inputOwner.jev.provider) ?? 0)
+    retained?.mode.selectItem(at: JevProviders.modes.firstIndex(of:inputOwner.jev.provider) ?? 0)
     retained?.showWindow(nil)
     NSApp.activate(ignoringOtherApps: true)
     retained?.refreshStatus()
   }
   init(inputOwner: SquirrelInputController) {
     self.inputOwner = inputOwner
-    let window = NSWindow(contentRect:NSRect(x:0,y:0,width:480,height:350),styleMask:[.titled,.closable,.miniaturizable],backing:.buffered,defer:false)
+    let window = NSWindow(contentRect:NSRect(x:0,y:0,width:540,height:480),styleMask:[.titled,.closable,.miniaturizable],backing:.buffered,defer:false)
     window.title="鼠须管 Jev 设置"
     super.init(window:window)
     let content=NSStackView();content.orientation = .vertical;content.alignment = .leading;content.spacing=14
@@ -477,42 +598,107 @@ final class JevPreferences: NSWindowController {
     window.contentView?.addSubview(content)
     if let view=window.contentView { NSLayoutConstraint.activate([content.leadingAnchor.constraint(equalTo:view.leadingAnchor,constant:24),content.trailingAnchor.constraint(equalTo:view.trailingAnchor,constant:-24),content.topAnchor.constraint(equalTo:view.topAnchor,constant:24)]) }
     let title=NSTextField(labelWithString:"语境选词");title.font=NSFont.boldSystemFont(ofSize:20);content.addArrangedSubview(title)
-    mode.addItems(withTitles:["关闭增强，使用万象词库","本地模型，输入留在本机","Jev 云端，发送有限上下文与候选"])
+    mode.addItems(withTitles:["关闭增强，使用万象词库","TT 本地，输入留在本机","Tev 0.8B 本地，输入留在本机", "Tev 4B 本地，输入留在本机","Jev 云端，发送有限上下文与候选"])
     mode.target=self;mode.action=#selector(jevModeChanged);content.addArrangedSubview(mode)
     let explanation=NSTextField(wrappingLabelWithString:"选择模式后，对当前应用启用。其他应用可从输入法菜单单独开启。模型无结果时，始终保留原有候选。")
     content.addArrangedSubview(explanation)
-    let model=NSTextField(labelWithString:"本地模型：this-that-model 1.2 · MLX\n空闲 10 分钟后自动释放模型内存")
     content.addArrangedSubview(model)
-    let install=NSButton(title:"安装或校验本地模型",target:self,action:#selector(installModel));content.addArrangedSubview(install)
+    timeoutField.widthAnchor.constraint(equalToConstant:72).isActive=true
+    timeoutField.target=self;timeoutField.action=#selector(saveTimeout)
+    timeoutSave.title="保存";timeoutSave.target=self;timeoutSave.action=#selector(saveTimeout);timeoutSave.bezelStyle = .rounded
+    timeoutReset.title="恢复默认";timeoutReset.target=self;timeoutReset.action=#selector(resetTimeout);timeoutReset.bezelStyle = .rounded
+    let timeoutRow=NSStackView(views:[NSTextField(labelWithString:"所选模型超时"),timeoutField,NSTextField(labelWithString:"秒"),timeoutSave,timeoutReset])
+    timeoutRow.orientation = .horizontal;timeoutRow.spacing=8
+    content.addArrangedSubview(timeoutRow);content.addArrangedSubview(timeoutHint)
+    install.title="下载或校验所选本地模型";install.target=self;install.action=#selector(installModel)
+    install.bezelStyle = .rounded;content.addArrangedSubview(install)
     progress.style = .bar;progress.isIndeterminate=true;progress.isDisplayedWhenStopped=false;progress.widthAnchor.constraint(equalToConstant:420).isActive=true
+    status.lineBreakMode = .byWordWrapping;status.maximumNumberOfLines=3
     content.addArrangedSubview(progress);content.addArrangedSubview(status)
+    for label in [explanation,model,status,timeoutHint] {label.widthAnchor.constraint(lessThanOrEqualToConstant:472).isActive=true}
     window.center()
     timer=Timer.scheduledTimer(withTimeInterval:2,repeats:true) { [weak self] _ in self?.refreshStatus() }
   }
   required init?(coder:NSCoder) { fatalError("init(coder:) is not supported") }
-  @objc private func jevModeChanged() { inputOwner?.jev.chooseMode(["off","local","jev"][mode.indexOfSelectedItem]);refreshStatus() }
+  @objc private func jevModeChanged() {
+    guard JevProviders.modes.indices.contains(mode.indexOfSelectedItem) else {return}
+    inputOwner?.jev.chooseMode(JevProviders.modes[mode.indexOfSelectedItem]);refreshStatus()
+  }
   private func refreshStatus() {
-    guard window?.isVisible==true, download?.isRunning != true else {return}
+    guard window?.isVisible==true else {return}
+    statusGeneration &+= 1
+    let generation=statusGeneration
     let provider=inputOwner?.jev.provider ?? "off"
+    let name=JevProviders.name(provider)
+    let configurable=JevProviders.active.contains(provider)
+    timeoutField.isEnabled=configurable;timeoutSave.isEnabled=configurable;timeoutReset.isEnabled=configurable
+    if timeoutProvider != provider {
+      timeoutProvider=provider
+      timeoutField.stringValue=String(Double(JevProviders.timeoutMilliseconds(provider:provider,overrides:JevSettings.current.timeoutOverrides))/1000)
+      timeoutHint.stringValue="0.3–10 秒，从停止键入起计时；按模型保存，各应用共用。"
+    }
+    model.stringValue="当前选择："+name+(JevProviders.local.contains(provider) ? " · 本机运行\n空闲 10 分钟后自动释放模型内存" : "")
+    install.isEnabled=JevProviders.local.contains(provider) && download?.isRunning != true
+    guard download?.isRunning != true else {return}
     if provider=="off" {status.stringValue="当前使用万象原有候选";return}
+    status.stringValue=name+"：正在检查状态"
     let socket=JevRuntimeManager.shared.socketPath(provider)
     DispatchQueue.global().async { [weak self] in
       let data=JevRuntimeManager.exchange(socket,payload:Data("{\"id\":\"settings\",\"op\":\"health\"}".utf8))
       let response=data.flatMap{try? JSONSerialization.jsonObject(with:$0) as? [String:Any]}
-      let value=response?["status"] as? String ?? "unavailable"
+      let value=response?["provider"] as? String==provider ? response?["status"] as? String ?? "unavailable" : "unavailable"
       DispatchQueue.main.async { [weak self] in
-        guard self?.inputOwner?.jev.provider==provider else{return}
-        self?.status.stringValue=["ready":"后台已就绪","loading":"模型加载中，当前使用万象候选","unavailable":"后台未就绪，当前使用万象候选","busy":"模型处理中，输入不受影响"][value] ?? "当前使用万象候选"
+        guard let self, self.statusGeneration==generation, self.inputOwner?.jev.provider==provider,
+              self.download?.isRunning != true else{return}
+        let description=["ready":"后台已就绪","loading":"模型加载中，当前使用万象候选","unavailable":"后台未就绪，当前使用万象候选","unloaded":"模型内存已释放，当前使用万象候选","busy":"模型处理中，输入不受影响"][value] ?? "当前使用万象候选"
+        self.status.stringValue=name+"："+description
       }
     }
+  }
+  @objc private func saveTimeout() {
+    let provider=inputOwner?.jev.provider ?? "off"
+    guard JevProviders.active.contains(provider) else {return}
+    guard let milliseconds=JevProviders.parseTimeoutSeconds(timeoutField.stringValue) else {
+      timeoutHint.stringValue="请输入 0.3–10 秒之间的数值。";return
+    }
+    var values=JevSettings.current.timeoutOverrides ?? [:];values[provider]=milliseconds
+    JevSettings.current.timeoutOverrides=values;JevSettings.save();JevInputAdapter.reloadPolicies()
+    timeoutField.stringValue=String(Double(milliseconds)/1000)
+    timeoutHint.stringValue=JevProviders.name(provider)+"已保存："+timeoutField.stringValue+" 秒。继续输入或选词会作废旧结果。"
+  }
+  @objc private func resetTimeout() {
+    let provider=inputOwner?.jev.provider ?? "off"
+    guard JevProviders.active.contains(provider) else {return}
+    JevSettings.current.timeoutOverrides?.removeValue(forKey:provider)
+    JevSettings.save();JevInputAdapter.reloadPolicies()
+    timeoutField.stringValue=String(Double(JevProviders.timeoutMilliseconds(provider:provider))/1000)
+    timeoutHint.stringValue=JevProviders.name(provider)+"已恢复默认："+timeoutField.stringValue+" 秒。"
   }
   @objc private func installModel() {
     guard download?.isRunning != true else{return}
     let settings=JevSettings.current, task=Process()
+    let provider=inputOwner?.jev.provider ?? "off", name=JevProviders.name(inputOwner?.jev.provider ?? "off")
+    guard let arguments=JevProviders.downloadArguments(provider:provider,projectRoot:settings.projectRoot,modelPath:settings.modelPath) else {return}
+    statusGeneration &+= 1
     task.executableURL=URL(fileURLWithPath:settings.projectRoot+"/.venv/bin/python")
-    task.arguments=[settings.projectRoot+"/scripts/download_model.py","--destination",settings.modelPath]
+    task.currentDirectoryURL=URL(fileURLWithPath:settings.projectRoot)
+    task.arguments=arguments
+    var env=ProcessInfo.processInfo.environment
+    env["PYTHONPATH"]=settings.projectRoot+"/src";env["RIME_JEV_PROJECT_ROOT"]=settings.projectRoot
+    task.environment=env
     task.standardOutput=FileHandle.nullDevice;task.standardError=FileHandle.nullDevice
-    task.terminationHandler={ [weak self] p in DispatchQueue.main.async { self?.progress.stopAnimation(nil);self?.status.stringValue=p.terminationStatus==0 ? "本地模型已安装并通过校验" : "安装未完成，原有输入仍然可用" } }
-    do {try task.run();download=task;progress.startAnimation(nil);status.stringValue="正在下载或校验模型，可继续正常输入"}catch{status.stringValue="无法启动安装，原有输入仍然可用"}
+    task.terminationHandler={ [weak self] p in DispatchQueue.main.async {
+      guard let self else {return}
+      self.progress.stopAnimation(nil);self.download=nil
+      if p.terminationStatus==0, self.inputOwner?.jev.provider==provider {
+        JevRuntimeManager.shared.reloadSelected(provider)
+      }
+      self.refreshStatus();self.statusGeneration &+= 1
+      self.status.stringValue=name+(p.terminationStatus==0 ? "：已下载并通过校验" : "：下载未完成，原有输入仍然可用")
+    } }
+    do {
+      try task.run();download=task;install.isEnabled=false;progress.startAnimation(nil)
+      status.stringValue=name+"：正在下载或校验，可继续正常输入"
+    } catch {status.stringValue=name+"：无法启动下载，原有输入仍然可用"}
   }
 }

@@ -265,7 +265,9 @@ final class SquirrelInputController: IMKInputController {
 
     let menu = NSMenu()
     for (title, action, mode) in [("语境选词：关闭", #selector(jevOff), "off"),
-                                   ("语境选词：本地模型", #selector(jevLocal), "local"),
+                                   ("语境选词：TT 本地", #selector(jevLocal), "local"),
+                                   ("语境选词：Tev 0.8B 本地", #selector(jevTevSmall), "tev-0.8b"),
+                                   ("语境选词：Tev 4B 本地", #selector(jevTevLarge), "tev-4b"),
                                    ("语境选词：Jev 云端", #selector(jevCloud), "jev")] {
       let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
       item.target = self
@@ -290,6 +292,8 @@ final class SquirrelInputController: IMKInputController {
   @objc func showJevSettings() { JevPreferences.show(for: self) }
   @objc func jevOff() { jev.chooseMode("off") }
   @objc func jevLocal() { jev.chooseMode("local") }
+  @objc func jevTevSmall() { jev.chooseMode("tev-0.8b") }
+  @objc func jevTevLarge() { jev.chooseMode("tev-4b") }
   @objc func jevCloud() { jev.chooseMode("jev") }
 
   @objc func deploy() {

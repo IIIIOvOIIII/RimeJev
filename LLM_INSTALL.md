@@ -1,4 +1,4 @@
-# LLM_INSTALL — RimeJev 0.2.4
+# LLM_INSTALL — RimeJev 0.3.0
 
 This is the dedicated installation contract for an LLM helping a user. 中文：这是提供给安装助手的独立指引；先检查、备份、验证，再安装，不能把构建成功当成真实输入验收。
 
@@ -15,7 +15,7 @@ This is the dedicated installation contract for an LLM helping a user. 中文：
 
 ## 1. Inspect prerequisites
 
-Run read-only checks for macOS version, `uname -m`, CLT (`xcrun --find swiftc`), Python 3.12/3.13, uv, free disk space, and current repository status. Support target: **Apple Silicon / arm64, macOS 13+**. The tested development machine was an M4 with 24 GB RAM; this is not a minimum-memory guarantee.
+Run read-only checks for macOS version, `uname -m`, CLT (`xcrun --find swiftc`), Python 3.12/3.13, uv, free disk space, and current repository status. Support target: **Apple Silicon / arm64, macOS 14+**. The tested development machine was an M4 with 24 GB RAM; this is not a minimum-memory guarantee.
 
 Required existing input installation:
 
@@ -30,7 +30,7 @@ If these are missing, stop the dependent step and explain what is missing. Use o
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout v0.2.4
+git checkout v0.3.0
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 ```
@@ -72,6 +72,21 @@ Download only if local mode is requested and the verified weights are not alread
 The script pins `flock-io/this-that-model-1.2` revision `c4d1c30b8d512d278726de439b8cc81fccc70c8f` and verifies Git/LFS hashes. Download size is about 3.5 GiB; leave additional disk and RAM headroom. Existing valid custom model paths should be preserved. Inference is offline after installation; download itself uses the network.
 
 Do not fetch model weights for an off/cloud-only installation. An absent local model must disable only enhancement, not native input.
+
+### Local Tev 0.8B / 4B
+
+Only download explicitly requested variants:
+
+```sh
+.venv/bin/python scripts/download_tev.py --model tev-0.8b
+.venv/bin/python scripts/download_tev.py --model tev-4b
+```
+
+The installer uses official Ollama 0.40.3, verifies its archive SHA-256, and verifies each model's pinned manifest digest. The private runtime lives under the checkout's ignored `work/runtime`, model blobs under ignored `work/models/ollama`, and the API binds only `127.0.0.1:11435`. It must not alter the user's system Ollama service on port 11434. Cloud features are disabled. Never repoint the provider to a remote endpoint or broaden the bind address to make setup work.
+
+Plan for about 797 MB for Tev 0.8B, 4.36 GB for Tev 4B, plus the runtime archive/extraction and free-disk headroom. There is no automatic download during typing. A missing model/runtime must only disable enhancement. Settings and the input menu offer independent TT, Tev 0.8B, and Tev 4B choices; the two Tev sizes use the same `✦ Tev` badge but distinct request identities.
+
+Tev accepts at most 23 candidate options plus `none`. Do not omit the abstention option to make 24 words fit. Preserve probability/margin checks and honor each model’s configured deadline. Default timeouts are 0.6s for TT/Jev/Tev 0.8B and 2s for Tev 4B; settings allow 0.3–10s per model. Time includes input debounce and candidate sampling, so the runtime receives only the remaining budget. Verify both variants with small synthetic requests after loading, record cold versus warm latency, and do not substitute a regular Qwen model for Tev if a download fails.
 
 ### Optional Jev cloud configuration
 
@@ -127,10 +142,12 @@ The post-install check verifies bundle name/ID, signature, binary receipt, deplo
 
 Use a dedicated empty input window and select **鼠须管 Jev**. First verify basic pinyin/selection with enhancement off. Then enable the user-selected backend for that test application using the input method's own menu. Local loading and first cloud connection may be slow; the native list must stay usable.
 
+Check model switching and each model’s timeout field: save, close/reopen, switch to another model, return, and restore the default. Existing per-application choices must stay intact.
+
 Check these cases:
 
-- If a timely confident model decision matches the original first word, the order stays unchanged and that word gets `✦ Jev` or `✦ 本地`.
-- If it selects another genuine word, the original first word stays first; the recommendation appears second with `✦ Jev 推荐` or `✦ 本地模型推荐` and is removed from its old position.
+- If a timely confident model decision matches the original first word, the order stays unchanged and that word gets `✦ Jev` or `✦ TT` / `✦ Tev`.
+- If it selects another genuine word, the original first word stays first; the recommendation appears second with `✦ Jev`, `✦ TT`, or `✦ Tev` and is removed from its old position.
 - Space selects the original first word. `2` selects the displayed second word. `3` selects the displayed third word. Badges never appear in committed text.
 - Turning enhancement off restores native order. No result, timeout, missing credentials, and model loading must not block native selection.
 

@@ -174,10 +174,11 @@ private func makeCoordinator(
     policy: JevDecisionPolicy = JevDecisionPolicy(
         defaultThreshold: JevDecisionThreshold(minimumProbability: 0.50, minimumMargin: 0.20)
     ),
-    decisions: DecisionBox
+    decisions: DecisionBox,
+    providerTimeouts: [String: Int64] = [:]
 ) -> JevDecisionCoordinator {
     var sequence = 0
-    let configuration = JevCoordinatorConfiguration(policy: policy)
+    let configuration = JevCoordinatorConfiguration(policy: policy, providerTimeouts: providerTimeouts)
     let coordinator = JevDecisionCoordinator(
         configuration: configuration,
         clock: clock,
@@ -212,7 +213,7 @@ private func testRequestWireAndDebounce() {
     let object = try! JSONSerialization.jsonObject(with: json) as! [String: Any]
     expectEqual(Set(object.keys), Set(["id", "op", "state", "candidates", "max_age_ms"]), "wire keys")
     expectEqual(object["op"] as? String, "decide", "wire operation")
-    expectEqual(object["max_age_ms"] as? Int, 1500, "wire max age")
+    expectEqual(object["max_age_ms"] as? Int, 1240, "wire budget subtracts debounce from the legacy 1500ms deadline")
     let state = object["state"] as! [String: Any]
     expectEqual(state["pinyin"] as? String, "jia", "wire pinyin")
     expectEqual(state["context"] as? String, "当前", "wire context")
@@ -222,7 +223,7 @@ private func testRequestWireAndDebounce() {
 }
 
 private func testFirstCandidateStillProducesDecision() {
-    for provider in ["jev", "local"] {
+    for provider in ["jev", "local", "tev-0.8b", "tev-4b"] {
         let clock=TestClock(), transport=TestTransport(), decisions=DecisionBox()
         let scheduler=TestScheduler(clock:clock)
         let coordinator=makeCoordinator(clock:clock,scheduler:scheduler,transport:transport,decisions:decisions)
@@ -241,6 +242,12 @@ private func testAbbreviationAndSamplingClock() {
                                       ("zhongg","zhong g",24),("youxiang","you xiang",8),
                                       ("shijian","shi jian",8),("a","a",8),("n","n",8)] {
         expectEqual(JevCandidateWindow.limit(pinyin:raw,displayCode:display), expected, "candidate window \(raw)")
+        for provider in ["local", "jev", "tev-0.8b", "tev-4b"] {
+            let capped = provider.hasPrefix("tev-") ? min(expected, 23) : expected
+            let limit = JevCandidateWindow.limit(pinyin:raw,displayCode:display,provider:provider)
+            expectEqual(limit, capped, "\(provider) candidate window \(raw)")
+            if provider.hasPrefix("tev-") { expect(limit + 1 <= 24, "Tev reserves one option for none") }
+        }
     }
     let clock=TestClock()
     let scheduler=TestScheduler(clock:clock), transport=TestTransport(), decisions=DecisionBox()
@@ -597,6 +604,267 @@ private func testDisableAndProviderSwitch() {
     expectEqual(decisions.values[0].provider, "local", "callback provider")
 }
 
+private func testProviderConfiguration() {
+    expectEqual(JevProviders.modes, ["off", "local", "tev-0.8b", "tev-4b", "jev"], "stable mode order")
+    expectEqual(JevProviders.local, ["local", "tev-0.8b", "tev-4b"], "all local model lifecycles")
+    expectEqual(JevProviders.downloadArguments(provider:"local",projectRoot:"/current project",modelPath:"/legacy model"),
+                ["/current project/scripts/download_model.py", "--destination", "/legacy model"], "legacy TT download path")
+    for provider in ["tev-0.8b", "tev-4b"] {
+        expectEqual(JevProviders.downloadArguments(provider:provider,projectRoot:"/current project",modelPath:"/legacy model"),
+                    ["/current project/scripts/download_tev.py", "--model", provider], "Tev downloads the selected variant")
+    }
+    for provider in ["off", "jev", "unknown"] {
+        expectEqual(JevProviders.downloadArguments(provider:provider,projectRoot:"/project",modelPath:"/model"), nil,
+                    "\(provider) has no local model download")
+    }
+    expectEqual(JevProviders.name("local"), "TT · this-that-model 1.2", "friendly TT model name")
+    expectEqual(JevProviders.name("tev-0.8b"), "Tev 0.8B", "specific small model name")
+    expectEqual(JevProviders.name("tev-4b"), "Tev 4B", "specific large model name")
+    let policy=JevDecisionPolicy.inputMethod()
+    expectEqual(policy.threshold(for:"local"), JevDecisionThreshold(minimumProbability:0.65,minimumMargin:0.15), "TT threshold preserved")
+    expectEqual(policy.threshold(for:"jev"), JevDecisionThreshold(minimumProbability:0.55,minimumMargin:0.15), "Jev threshold preserved")
+    for provider in ["tev-0.8b", "tev-4b"] {
+        expectEqual(policy.threshold(for:provider), JevDecisionThreshold(minimumProbability:0.65,minimumMargin:0.15), "conservative Tev threshold")
+        let request=JevDecisionRequest(id:provider,state:JevRequestState(context:"前文",pinyin:"jia"),
+            candidates:candidates.map {JevRequestCandidate(id:$0.id,text:$0.text)},maxAgeMilliseconds:1500,provider:provider)
+        let below=acceptedResponse(request:request,probabilities:["a":0.2,"b":0.64,"c":0.1,"none":0.06])
+        expectEqual(JevDecisionValidator.validate(response:below,request:request,candidates:candidates,policy:policy),
+                    .rejected(.thresholdProbability), "Tev does not use cloud probability threshold")
+        let accepted=acceptedResponse(request:request,probabilities:["a":0.2,"b":0.65,"c":0.1,"none":0.05])
+        guard case .accepted = JevDecisionValidator.validate(response:accepted,request:request,candidates:candidates,policy:policy) else {
+            fatalError("Tev threshold boundary rejected")
+        }
+    }
+    let custom=JevDecisionPolicy.inputMethod(localProbability:0.8,jevProbability:0.7,tevProbability:0.75)
+    expectEqual(custom.threshold(for:"local").minimumProbability, 0.8, "custom TT threshold preserved")
+    expectEqual(custom.threshold(for:"jev").minimumProbability, 0.7, "custom Jev threshold preserved")
+    expectEqual(custom.threshold(for:"tev-4b").minimumProbability, 0.75, "independent custom Tev threshold")
+}
+
+private func testProviderTimeoutConfiguration() {
+    let defaults: [String: Int64] = ["local": 600, "tev-0.8b": 600, "tev-4b": 2000, "jev": 600]
+    expectEqual(JevProviders.timeouts(), defaults, "model timeout defaults")
+    expectEqual(JevProviders.timeouts(overrides: nil), defaults, "old settings without timeout overrides")
+    expectEqual(JevProviders.timeouts(overrides: [:]), defaults, "empty settings retain defaults")
+    for provider in JevProviders.active {
+        expectEqual(JevProviders.timeoutMilliseconds(provider: provider), defaults[provider], "single model default")
+        for valid: Int64 in [300, 875, 10000] {
+            let overrides = [provider: valid]
+            expectEqual(JevProviders.timeoutMilliseconds(provider: provider, overrides: overrides), valid, "valid stored timeout")
+            var expected = defaults
+            expected[provider] = valid
+            expectEqual(JevProviders.timeouts(overrides: overrides), expected, "override affects only the matching model")
+        }
+        for invalid: Int64 in [Int64.min, -1, 0, 299, 10001, Int64.max] {
+            let overrides = [provider: invalid]
+            expectEqual(JevProviders.timeoutMilliseconds(provider: provider, overrides: overrides), defaults[provider], "invalid stored timeout falls back")
+            expectEqual(JevProviders.timeouts(overrides: overrides), defaults, "invalid stored timeout does not alter model defaults")
+        }
+    }
+    let custom: [String: Int64] = ["local": 300, "tev-0.8b": 875, "tev-4b": 10000, "jev": 1421]
+    let stored = custom.merging(["off": 4000, "unknown": 9000]) { first, _ in first }
+    expectEqual(JevProviders.timeouts(overrides: stored), custom, "only active model keys are returned")
+
+    let generic = JevCoordinatorConfiguration()
+    expectEqual(generic.providerTimeouts, [:], "generic configuration opts out of model-specific defaults")
+    expectEqual(generic.promoteDeadlineMilliseconds, 600, "legacy generic promotion deadline")
+    expectEqual(generic.annotateDeadlineMilliseconds, 1500, "legacy generic annotation deadline")
+    expectEqual(generic.maxAgeMilliseconds, 1500, "legacy generic max age")
+    expectEqual(generic.effectiveDeadlineMilliseconds, 1500, "legacy generic final deadline")
+    for provider in JevProviders.active + ["unknown"] {
+        expectEqual(generic.promoteDeadlineMilliseconds(for: provider), 600, "unconfigured provider uses generic promotion")
+        expectEqual(generic.effectiveDeadlineMilliseconds(for: provider), 1500, "unconfigured provider uses generic final deadline")
+    }
+    let overridden = JevCoordinatorConfiguration(promoteDeadlineMilliseconds: 400,
+        annotateDeadlineMilliseconds: 1200, maxAgeMilliseconds: 900, providerTimeouts: custom)
+    expectEqual(overridden.providerTimeouts, custom, "configuration retains provider overrides")
+    expectEqual(overridden.effectiveDeadlineMilliseconds, 900, "generic final deadline still honors max age")
+    expectEqual(overridden.promoteDeadlineMilliseconds(for: "unknown"), 400, "unmatched provider retains custom generic promotion")
+    expectEqual(overridden.effectiveDeadlineMilliseconds(for: "unknown"), 900, "unmatched provider retains custom generic final deadline")
+    for (provider, timeout) in custom {
+        expectEqual(overridden.promoteDeadlineMilliseconds(for: provider), timeout, "model timeout overrides promotion")
+        expectEqual(overridden.effectiveDeadlineMilliseconds(for: provider), timeout, "model timeout overrides both generic final limits")
+    }
+}
+
+private func testParseTimeoutSeconds() {
+    let valid: [(String, Int64)] = [
+        ("0.3", 300), ("10", 10000), (" \t0.6\r\n", 600), ("2e0", 2000),
+        ("0.6254", 625), ("0.6255", 626), ("0.3001", 300), ("9.9999", 10000)
+    ]
+    for (text, expected) in valid {
+        expectEqual(JevProviders.parseTimeoutSeconds(text), expected, "timeout seconds are trimmed and rounded: \(text)")
+    }
+    for text in ["", " \t\n", "abc", "1 second", "0,6", "1 0", "NaN", "nan", "inf", "-inf",
+                 "Infinity", "1e309", "0", "-0.3", "0.2999", "10.0001", "10000", "1e-300"] {
+        expectEqual(JevProviders.parseTimeoutSeconds(text), nil, "invalid timeout seconds rejected before rounding: \(text)")
+    }
+}
+
+private func testGenericCustomDeadlines() {
+    for (annotation, maxAge): (Int64, Int64) in [(900, 750), (750, 900)] {
+        let configuration = JevCoordinatorConfiguration(promoteDeadlineMilliseconds: 300,
+            annotateDeadlineMilliseconds: annotation, maxAgeMilliseconds: maxAge, providerTimeouts: ["local": 2000])
+        let cases: [(Int64, JevDecisionAction?)] = [(299, .promote), (300, .annotate), (750, .annotate), (751, nil)]
+        for (age, action) in cases {
+            let clock = TestClock(), transport = TestTransport(), decisions = DecisionBox()
+            let scheduler = TestScheduler(clock: clock)
+            let coordinator = JevDecisionCoordinator(configuration: configuration, clock: clock, scheduler: scheduler,
+                transport: transport.closure, onDecision: { decisions.values.append($0) })
+            coordinator.onNewSnapshot(snapshot(identity: "generic-custom", provider: "jev"))
+            scheduler.advance(to: 260)
+            let request = transport.requests[0]
+            expectEqual(request.maxAgeMilliseconds, 490, "generic wire budget honors the smaller final limit")
+            scheduler.advance(to: age)
+            transport.respond(acceptedResponse(request: request))
+            scheduler.runDue()
+            expectEqual(decisions.values.last?.action, action, "unmatched provider preserves custom generic deadline boundaries")
+        }
+    }
+}
+
+private let timeoutConfigurations = [
+    JevProviders.timeouts(),
+    JevProviders.timeouts(overrides: ["local": 300, "tev-0.8b": 1250, "tev-4b": 800, "jev": 10000])
+]
+
+private func testProviderTimeoutDeadlines() {
+    for timeouts in timeoutConfigurations {
+        for provider in JevProviders.active {
+            let timeout = timeouts[provider]!
+            for age in Set([timeout - 1, timeout, timeout + 1, 1800]) {
+                let clock = TestClock(), transport = TestTransport(), decisions = DecisionBox()
+                let scheduler = TestScheduler(clock: clock)
+                let coordinator = makeCoordinator(clock: clock, scheduler: scheduler, transport: transport,
+                    decisions: decisions, providerTimeouts: timeouts)
+                coordinator.onNewSnapshot(snapshot(identity: "deadline-" + provider, provider: provider))
+                scheduler.advance(to: 260)
+                let request = transport.requests[0]
+                let object = try! JSONSerialization.jsonObject(with: request.jsonData()) as! [String: Any]
+                expectEqual(object["max_age_ms"] as? Int64, timeout - 260, "\(provider) sends only the remaining wire budget")
+                scheduler.advance(to: age)
+                transport.respond(acceptedResponse(request: request))
+                scheduler.runDue()
+                if age > timeout {
+                    expect(decisions.values.isEmpty, "\(provider) discards results beyond its configured deadline")
+                    expect(transport.cancelledRequestIDs.contains(request.id), "model deadline cancels transport")
+                    expectEqual(coordinator.lastOutcome, "deadline_expired", "model deadline expiry is recorded")
+                } else {
+                    expectEqual(decisions.values.count, 1, "\(provider) accepts a result within its configured deadline")
+                    expectEqual(decisions.values.last?.action, age < timeout ? .promote : .annotate, "model-specific promotion and inclusive final boundary")
+                    expectEqual(decisions.values.last?.elapsedMilliseconds, age, "decision age includes debounce")
+                    expect(!transport.cancelledRequestIDs.contains(request.id), "transport remains live through the inclusive deadline")
+                    transport.respond(acceptedResponse(request: request))
+                    scheduler.runDue()
+                    expectEqual(decisions.values.count, 1, "model override preserves apply-once behavior")
+                }
+            }
+        }
+    }
+}
+
+private func testProviderSamplingBudgetAndQueuedExpiry() {
+    for timeouts in timeoutConfigurations {
+        for provider in JevProviders.active {
+            let timeout = timeouts[provider]!
+            let samplingCases: [(Int64, Int64)] = [
+                (80, 260), (400, 400), (80, 450), (timeout - 1, timeout - 1), (timeout, timeout), (timeout + 1, timeout + 1)
+            ]
+            for (samplingAge, sendAge) in samplingCases {
+                let clock = TestClock(), transport = TestTransport(), decisions = DecisionBox()
+                let scheduler = TestScheduler(clock: clock)
+                let coordinator = makeCoordinator(clock: clock, scheduler: scheduler, transport: transport,
+                    decisions: decisions, providerTimeouts: timeouts)
+                let startedAt: Int64 = 1000
+                clock.advance(by: startedAt + samplingAge)
+                coordinator.onNewSnapshot(snapshot(identity: "sampling-" + provider, provider: provider), startedAtMilliseconds: startedAt)
+                scheduler.advance(to: startedAt + sendAge)
+                if sendAge >= timeout {
+                    expect(transport.requests.isEmpty, "sampling or scheduler delay that exhausts the budget sends no request")
+                    expectEqual(coordinator.lastOutcome, "deadline_expired", "expired sampling uses the selected model timeout")
+                    continue
+                }
+                expectEqual(transport.requests.count, 1, "sampling leaves a positive request budget")
+                let request = transport.requests[0]
+                expectEqual(request.maxAgeMilliseconds, timeout - sendAge, "wire budget includes sampling and actual scheduler delay")
+                // Queue the response first, then advance only the clock. Receive runs
+                // before the due expiry task and must independently reject the result.
+                transport.respond(acceptedResponse(request: request))
+                clock.advance(by: timeout + 1 - sendAge)
+                scheduler.runDue()
+                expect(decisions.values.isEmpty, "a queued result cannot extend the deadline while waiting for delivery")
+                expect(transport.cancelledRequestIDs.contains(request.id), "receive cancels transport after the model deadline")
+                expectEqual(coordinator.lastOutcome, "deadline_expired", "receive enforces the original sampling start time")
+            }
+        }
+    }
+}
+
+private func testProviderTimeoutLocks() {
+    for timeouts in timeoutConfigurations {
+        for provider in JevProviders.active {
+            for commitLocked in [false, true] {
+                let clock = TestClock(), transport = TestTransport(), decisions = DecisionBox()
+                let scheduler = TestScheduler(clock: clock)
+                let coordinator = makeCoordinator(clock: clock, scheduler: scheduler, transport: transport,
+                    decisions: decisions, providerTimeouts: timeouts)
+                coordinator.onNewSnapshot(snapshot(identity: "locked-" + provider, provider: provider))
+                scheduler.advance(to: 260)
+                scheduler.advance(to: timeouts[provider]! - 1)
+                transport.respond(acceptedResponse(request: transport.requests[0]))
+                if commitLocked { coordinator.lockCommit() } else { coordinator.lockSorting() }
+                scheduler.runDue()
+                expectEqual(decisions.values.last?.action, commitLocked ? nil : .annotate, "model deadline never overrides sort or commit locks")
+                expectEqual(coordinator.lastOutcome, commitLocked ? "commit_locked" : "annotate", "locked model result outcome")
+                coordinator.onNewSnapshot(snapshot(identity: "unlocked-" + provider, provider: provider))
+                scheduler.advance(by: 260)
+                let current = transport.requests[1]
+                transport.respond(acceptedResponse(request: current))
+                scheduler.runDue()
+                expectEqual(decisions.values.last?.requestID, current.id, "new snapshot clears previous model locks")
+                expectEqual(decisions.values.last?.action, .promote, "fresh model snapshot can promote")
+            }
+        }
+    }
+}
+
+private func testStaleTevVariantResponses(providerTimeouts: [String: Int64] = [:]) {
+    let clock=TestClock(), transport=TestTransport(), decisions=DecisionBox()
+    let scheduler=TestScheduler(clock:clock)
+    let coordinator=makeCoordinator(clock:clock,scheduler:scheduler,transport:transport,decisions:decisions,providerTimeouts:providerTimeouts)
+    // Reuse input identity across a small -> large -> small switch: even a matching
+    // provider must not revive an earlier generation of the request.
+    coordinator.onNewSnapshot(snapshot(identity:"same-input",provider:"tev-0.8b"))
+    scheduler.advance(by:260)
+    let small=transport.requests[0]
+    transport.respond(acceptedResponse(request:small))
+    coordinator.setProvider("tev-4b")
+    scheduler.runDue()
+    expect(decisions.values.isEmpty, "queued small-model callback is invalidated before delivery")
+    expect(transport.cancelledRequestIDs.contains(small.id), "small-model transport is cancelled")
+    coordinator.onNewSnapshot(snapshot(identity:"same-input",provider:"tev-4b"))
+    scheduler.advance(by:260)
+    let large=transport.requests[1]
+    transport.respond(acceptedResponse(request:small))
+    scheduler.runDue()
+    expect(decisions.values.isEmpty, "late response from the old variant is ignored")
+    transport.respond(acceptedResponse(request:large,provider:"tev-0.8b"))
+    scheduler.runDue()
+    expect(decisions.values.isEmpty, "new request rejects a different Tev variant")
+    coordinator.setProvider("tev-0.8b")
+    coordinator.onNewSnapshot(snapshot(identity:"same-input",provider:"tev-0.8b"))
+    scheduler.advance(by:260)
+    let newSmall=transport.requests[2]
+    transport.respond(acceptedResponse(request:small))
+    transport.respond(acceptedResponse(request:large))
+    scheduler.runDue()
+    expect(decisions.values.isEmpty, "returning to small does not accept either stale model response")
+    transport.respond(acceptedResponse(request:newSmall))
+    scheduler.runDue()
+    expectEqual(decisions.values.count, 1, "current variant produces one decision")
+    expectEqual(decisions.values[0].requestID, newSmall.id, "decision belongs to current variant generation")
+}
+
 @main
 private enum JevCoreTests {
     static func main() {
@@ -608,6 +876,15 @@ private enum JevCoreTests {
         testValidation()
         testProviderResponseDecoding()
         testDisableAndProviderSwitch()
-        print("JevCoreTests: PASS (wire, debounce, stale identity, locks, deadlines, validation, disable/provider switch)")
+        testProviderConfiguration()
+        testProviderTimeoutConfiguration()
+        testParseTimeoutSeconds()
+        testGenericCustomDeadlines()
+        testProviderTimeoutDeadlines()
+        testProviderSamplingBudgetAndQueuedExpiry()
+        testProviderTimeoutLocks()
+        testStaleTevVariantResponses()
+        for timeouts in timeoutConfigurations { testStaleTevVariantResponses(providerTimeouts: timeouts) }
+        print("JevCoreTests: PASS (wire budgets, debounce, sampling, window caps, first candidate, locks, generic/model deadlines, timeout settings/parsing, thresholds, provider downloads, stale variants)")
     }
 }

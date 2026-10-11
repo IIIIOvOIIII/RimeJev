@@ -30,6 +30,7 @@ SOCKET_MODE = 0o600
 SOCKET_PARENT_MODE = 0o700
 LISTEN_BACKLOG = 16
 READ_TIMEOUT_SECONDS = 5.0
+SHUTDOWN_WAIT_SECONDS = 65.0
 
 
 def _error_result(provider: str, model: str, request_id: Any, code: str) -> dict[str, Any]:
@@ -58,6 +59,11 @@ class RuntimeServer:
         self._started = False
         self._lock = threading.RLock()
         self._connections: set[threading.Thread] = set()
+        self._closing = False
+        self._shutdown_complete = threading.Event()
+        self._shutdown_thread: threading.Thread | None = None
+        self._shutdown_attempt = threading.Event()
+        self._shutdown_requested = False
 
     @property
     def is_running(self) -> bool:
@@ -67,6 +73,8 @@ class RuntimeServer:
         with self._lock:
             if self._started:
                 return
+            if self._closing:
+                raise RuntimeError("runtime is shutting down")
             self._prepare_socket_path()
             listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             listener.settimeout(0.25)
@@ -122,8 +130,15 @@ class RuntimeServer:
             raise RuntimeError("runtime listener is unavailable")
         try:
             while not self._stop.is_set():
-                if self.provider.provider_name == "local" and getattr(self.provider, "status", None) == "unloaded":
-                    break
+                if self._shutdown_requested:
+                    self._shutdown_requested = False
+                    self.stop(wait=False)
+                if (
+                    not self._closing
+                    and self.provider.provider_name in {"local", "tev-0.8b", "tev-4b"}
+                    and getattr(self.provider, "status", None) == "unloaded"
+                ):
+                    self.stop(wait=False)
                 try:
                     connection, _ = listener.accept()
                 except OSError:
@@ -176,10 +191,12 @@ class RuntimeServer:
                     return
                 request_id = request.get("id")
                 response = self._dispatch(request)
-                self._send(connection, response)
-                if request.get("op") == "shutdown":
-                    # Send the acknowledgement first, then tear down the listener and socket.
-                    self.stop()
+                try:
+                    self._send(connection, response)
+                finally:
+                    if request.get("op") == "shutdown":
+                        # Acknowledgement accepts the request; socket removal proves completion.
+                        self.stop(wait=False)
             except socket.timeout:
                 self._send(connection, _error_result_for_runtime(request_id, self.provider, "read_timeout"))
             except (BrokenPipeError, ConnectionResetError):
@@ -197,22 +214,40 @@ class RuntimeServer:
     def _dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
         request_id = request.get("id")
         op = request.get("op")
-        if op == "health":
-            return self.provider.health().to_dict(request_id)
         if op == "shutdown":
+            with self._lock:
+                self._closing = True
             return ProviderResult(
                 status="ready",
                 provider=self._provider_name(),
                 model=self._model_name(),
                 elapsed_ms=0.0,
             ).to_dict(request_id)
+        if op in {"health", "decide"}:
+            with self._lock:
+                if self._closing:
+                    return self._closed_result(request_id)
+        if op == "health":
+            result = self.provider.health().to_dict(request_id)
+            with self._lock:
+                return self._closed_result(request_id) if self._closing else result
         if op != "decide":
             return _error_result(self._provider_name(), self._model_name(), request_id, "unsupported_operation")
         try:
             decision_request = DecisionRequest.from_payload(request)
         except ProviderInputError:
             return _error_result(self._provider_name(), self._model_name(), request_id, "invalid_request")
-        return self.provider.decide(decision_request).to_dict(request_id)
+        result = self.provider.decide(decision_request).to_dict(request_id)
+        with self._lock:
+            return self._closed_result(request_id) if self._closing else result
+
+    def _closed_result(self, request_id: Any) -> dict[str, Any]:
+        return ProviderResult(
+            status="unavailable",
+            provider=self._provider_name(),
+            model=self._model_name(),
+            error="runtime_closed",
+        ).to_dict(request_id)
 
     def _send(self, connection: socket.socket, response: dict[str, Any]) -> None:
         payload = json.dumps(response, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
@@ -224,33 +259,78 @@ class RuntimeServer:
     def _model_name(self) -> str:
         return str(getattr(self.provider, "model_name", "unknown"))
 
-    def stop(self) -> None:
-        with self._lock:
-            if self._stop.is_set() and self._listener is None:
-                return
-            self._stop.set()
-            listener = self._listener
-            self._listener = None
-        if listener is not None:
-            try:
-                listener.close()
-            except OSError:
-                pass
-        shutdown = getattr(self.provider, "shutdown", None)
-        if callable(shutdown):
-            shutdown()
-        self._unlink_socket()
+    def request_stop(self) -> None:
+        # Signal handlers must not reenter locks, event waits, or thread creation.
+        self._shutdown_requested = True
 
-    def _unlink_socket(self) -> None:
+    def stop(self, *, wait: bool = True) -> bool:
+        """Return True only after model release and socket removal have completed.
+
+        Concurrent callers share one bounded wait. Failure leaves the listener owned and
+        reachable, with decisions closed, so a later call can retry. Signals and the accept
+        loop defer the wait to keep serving while the shutdown worker releases the model.
+        """
+        with self._lock:
+            if self._shutdown_complete.is_set():
+                return True
+            self._closing = True
+            if self._shutdown_thread is None:
+                self._shutdown_attempt = threading.Event()
+                self._shutdown_thread = threading.Thread(
+                    target=self._shutdown_worker,
+                    args=(self._shutdown_attempt,),
+                    name="rime-jev-shutdown",
+                    daemon=True,
+                )
+                self._shutdown_thread.start()
+            attempt = self._shutdown_attempt
+            worker = self._shutdown_thread
+        if wait and threading.current_thread() is not worker:
+            attempt.wait(SHUTDOWN_WAIT_SECONDS)
+        return self._shutdown_complete.is_set()
+
+    def _shutdown_worker(self, attempt: threading.Event) -> None:
+        try:
+            shutdown = getattr(self.provider, "shutdown", None)
+            # Legacy providers return None; Tev explicitly reports incomplete/failed release.
+            if callable(shutdown) and shutdown() is False:
+                return
+            with self._lock:
+                # Unlink before close so a present path never looks like a stale listener.
+                if not self._unlink_socket():
+                    return
+                listener = self._listener
+                self._listener = None
+                if listener is not None:
+                    try:
+                        listener.close()
+                    except OSError:
+                        pass
+                self._stop.set()
+                self._shutdown_complete.set()
+        except Exception:
+            # Preserve the completion marker and live listener on provider failure.
+            return
+        finally:
+            with self._lock:
+                self._shutdown_thread = None
+                attempt.set()
+
+    def _unlink_socket(self) -> bool:
         with self._lock:
             if not self._owns_socket:
-                return
+                return True
+            try:
+                if self.socket_path.is_socket():
+                    self.socket_path.unlink()
+                elif self.socket_path.exists():
+                    return False
+            except FileNotFoundError:
+                pass
+            except OSError:
+                return False
             self._owns_socket = False
-        try:
-            if self.socket_path.is_socket():
-                self.socket_path.unlink()
-        except (FileNotFoundError, OSError):
-            pass
+            return True
 
 
 UnixSocketRuntime = RuntimeServer
@@ -265,7 +345,7 @@ def _error_result_for_runtime(request_id: Any, provider: Any, code: str) -> dict
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Rime-Jev local Unix socket decision runtime")
     parser.add_argument("--socket", required=True, dest="socket_path")
-    parser.add_argument("--provider", required=True, choices=("local", "jev"))
+    parser.add_argument("--provider", required=True, choices=("local", "jev", "tev-0.8b", "tev-4b"))
     parser.add_argument("--model-path", dest="model_path")
     parser.add_argument("--vault-ref", dest="vault_ref")
     return parser
@@ -277,6 +357,10 @@ def main(argv: list[str] | None = None) -> int:
         if not args.model_path:
             _build_parser().error("--model-path is required for --provider local")
         provider = LocalProvider(args.model_path)
+    elif args.provider in {"tev-0.8b", "tev-4b"}:
+        from .tev_provider import TevProvider
+
+        provider = TevProvider(args.provider)
     else:
         if not args.vault_ref:
             _build_parser().error("--vault-ref is required for --provider jev")
@@ -286,7 +370,7 @@ def main(argv: list[str] | None = None) -> int:
     previous_handlers: dict[int, Any] = {}
 
     def stop_handler(signum: int, frame: Any) -> None:
-        server.stop()
+        server.request_stop()
 
     for signum in (signal.SIGINT, signal.SIGTERM):
         try:

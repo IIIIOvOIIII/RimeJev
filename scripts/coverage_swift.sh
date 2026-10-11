@@ -17,3 +17,5 @@ PY
 bash scripts/test_jev_context.sh
 swiftc -parse-as-library native/JevBadge.swift native/tests/JevBadgeTests.swift -framework AppKit -o work/JevBadgeTests
 work/JevBadgeTests
+
+.venv/bin/python scripts/test_runtime_lifecycle.py

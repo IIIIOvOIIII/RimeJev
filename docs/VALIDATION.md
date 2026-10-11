@@ -23,3 +23,23 @@ Public source verification completed on 2026-10-11 (Asia/Singapore):
 The public package was built and tested, but not installed over the already accepted development installation during publication. Public credential endpoints/helpers remain intentionally unconfigured. Fresh-user OS permission and per-host typing acceptance must follow `LLM_INSTALL.md`.
 
 The published history starts from a sanitized source snapshot. Private development history, private setup evidence, local configuration, credentials, models, and personal dictionaries are not included.
+
+
+## 0.3.0 Tev and model timeout validation (in progress)
+
+The four active identities are `jev`, `local` (TT), `tev-0.8b`, and `tev-4b`; both Tev sizes display `✦ Tev`. Three local models were loaded and exercised with fixed synthetic inputs. Selected-model shutdown was followed by an empty managed-service `/api/ps` list. The original system service was not replaced.
+
+Ollama 0.40.3 serves the Tev decision API with the pinned Apple Silicon MLX manifests, verified directly against the official registry index and manifest blobs. The runtime binary requires macOS 14 or newer. The source remains free of model weights, credentials, and private settings.
+
+The bounded Tev ledger includes eight diagnostic decisions plus startup warmups; earlier failures and timeouts are retained. Some initial inputs used intentionally long synthetic engine-fixture words; later tests used short common candidate words. These runs are protocol/latency diagnostics, not an accuracy benchmark, and other build work may overlap timing measurements.
+
+| Fixed diagnostic | Result |
+| --- | --- |
+| TT local load and inference | Ready; returned valid candidate probabilities |
+| Tev 0.8B load and inference | Ready; two Chinese examples had insufficient confidence and would keep native order |
+| Tev 4B: 汽车 + youxiang, 2-second window | 油箱, probability about 0.90; 798ms model response, within the configured window including debounce |
+| Tev 4B: 我现在又想 + sj, 4-second diagnostic window | 1.58s response but low confidence; recommendation rejected and native order retained |
+
+User-approved timeout controls allow 0.3–10 seconds per model. Defaults are 0.6s for Jev, TT and Tev 0.8B; 2s for Tev 4B. Tests cover independent values, persistence-compatible optional settings, invalid/NaN/boundary values, remaining runtime budgets, deadlines, selection locks, and stale variants. Native lifecycle tests include a release slower than the initial three-second wait and verify automatic continuation without another key.
+
+The backend suite currently passes 331 tests, and 168 real-Rime fixture probes cover all four sources. Build/install/actual settings-window validation will be recorded after the final gate. Model choice is not proof of correct Chinese predictions across all contexts.

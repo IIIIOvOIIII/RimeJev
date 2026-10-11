@@ -6,7 +6,8 @@ struct JevBadgeTests {
     precondition(JevBadge.render(nil) == nil)
     precondition(JevBadge.render("") == nil)
     precondition(JevBadge.label(provider:"off",matchesFirst:true) == nil)
-    for (provider, first, second) in [("jev", "✦ Jev", "✦ Jev 推荐"), ("local", "✦ 本地", "✦ 本地模型推荐")] {
+    for (provider, first, second) in [("jev", "✦ Jev", "✦ Jev"), ("local", "✦ TT", "✦ TT"),
+                                      ("tev-0.8b", "✦ Tev", "✦ Tev"), ("tev-4b", "✦ Tev", "✦ Tev")] {
       precondition(JevBadge.label(provider:provider,matchesFirst:true) == first)
       precondition(JevBadge.label(provider:provider,matchesFirst:false) == second)
       for label in [first,second] {

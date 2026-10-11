@@ -43,6 +43,8 @@ ORIGINAL_APP='/Library/Input Methods/Squirrel.app'
 RIME_DIR="$HOME/Library/Rime"
 
 [[ $(uname -s) == Darwin && $(uname -m) == arm64 ]] || die 'macOS on Apple silicon is required (run outside Rosetta).'
+macos_major=$(sw_vers -productVersion | cut -d. -f1)
+[[ $macos_major -ge 14 ]] || die 'macOS 14 or newer is required by the pinned local runtime.'
 for tool in git xcode-select xcrun plutil lipo uv; do
   command -v "$tool" >/dev/null 2>&1 || die "missing prerequisite: $tool"
 done

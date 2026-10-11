@@ -3,8 +3,9 @@ import AppKit
 struct JevBadge {
   static func label(provider: String, matchesFirst: Bool) -> String? {
     switch provider {
-    case "jev": return matchesFirst ? "✦ Jev" : "✦ Jev 推荐"
-    case "local": return matchesFirst ? "✦ 本地" : "✦ 本地模型推荐"
+    case "jev": return "✦ Jev"
+    case "local": return "✦ TT"
+    case "tev-0.8b", "tev-4b": return "✦ Tev"
     default: return nil
     }
   }

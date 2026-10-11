@@ -5,6 +5,7 @@ project_dir=$(pwd)
 app_dir="$HOME/Library/Input Methods/Rime-Jev.app"
 user_dir="$HOME/Library/Rime-Jev"
 if [[ ${1:-} == --rollback ]]; then
+  .venv/bin/python scripts/stop_runtime.py
   if [[ -x "$app_dir/Contents/MacOS/Squirrel" ]]; then
     "$app_dir/Contents/MacOS/Squirrel" --disable-input-source
     "$app_dir/Contents/MacOS/Squirrel" --quit
@@ -50,7 +51,6 @@ codesign --verify --deep --strict "$app_dir"
 swift scripts/register_input.swift
 "$app_dir/Contents/MacOS/Squirrel" --register-input-source
 "$app_dir/Contents/MacOS/Squirrel" --enable-input-source
-open -g -a "$app_dir"
 .venv/bin/python - "$project_dir" "$source_sha" "$app_dir" "$user_dir" <<'PY'
 import json,pathlib,sys,hashlib,datetime
 root,sha,app,user=map(str,sys.argv[1:]);p=pathlib.Path(root)
@@ -67,4 +67,5 @@ settings.write_text(json.dumps(data,ensure_ascii=False,indent=2)+'\n')
 settings.chmod(0o600)
 print(json.dumps(info))
 PY
+open -g -a "$app_dir"
 printf 'Installed user-scoped Rime-Jev. Original Squirrel and its data remain available.\n'
