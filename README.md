@@ -20,6 +20,8 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 0.5.1 新增按本机日期保存、先压缩再加密；预计达到容量上限 90% 时永久清理最旧采集文件至约 80%，继续记录新输入。关闭采集不触发自动清理，手动删除仍移到废纸篓。旧格式可读取，并在下次启用写入时尝试无损压缩迁移。
 
+旧版 0.5.0 无法读取新压缩格式。如需降级，请保留 0.5.1 或更新版本用于读取，或提前明确导出所需记录；不要删除采集文件或加密密钥来解决兼容性问题。
+
 记录关联真实拼音、有限同一行前文、原生候选、展示顺序、已有模型结果及实际选词。原始记录以 AES-GCM 加密保存在本机，使用独立钥匙串密钥；关闭增强时也可记录原生选择，不会额外加载或调用模型。采集失败只暂停记录。支持只读预览、移到废纸篓和本地训练集导出；数据管理会先关闭采集，完成后保持关闭。
 
 导出数据是明文，请先审阅。无需分词器即可导出通用 records/sft；选择兼容的本地分词器后，可导出经过 token 和答案边界校验的 Tev prompt/completion 文件。不自动下载分词器、不上传数据、不启动训练。完整字段、隐私及使用边界见 [训练数据说明](docs/TRAINING_CAPTURE.md)。
@@ -32,7 +34,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 云端模式发送的有限前文也可能包含输入框中已有或粘贴的文字。本地模式不发送到云端；增强关闭时停止为模型读取前文。若用户独立开启训练采集，则仅按所选应用范围和字段设置采集。安全输入和输入法自身设置不采集前文；诊断仅包含来源、长度、耗时和状态，不包含真实文本。
 
-### 0.5.0 的候选规则
+### 0.5.1 的候选规则
 
 | 模型结果 | 显示与选词 |
 | --- | --- |
@@ -48,7 +50,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 ### 安装
 
-当前开发分支为 **0.5.1**（`feat/training-retention`）；最新正式源码版本为 **[0.5.0](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.0)**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
+这是 **[0.5.1 源码版本](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.1)**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
 
 请将 [LLM_INSTALL.md](LLM_INSTALL.md) 交给协助安装的 LLM。它包含环境检查、固定版本依赖、测试、备份、安装、系统授权、手动验收及回退步骤。完整 Xcode 不是前提。不要跳过检查直接运行安装器。
 
@@ -57,7 +59,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout feat/training-retention
+git checkout v0.5.1
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 bash scripts/run_quality_gate.sh --gate local
@@ -128,6 +130,8 @@ Open the input menu's training-data settings or the Training data button in pref
 
 0.5.1 groups captures by local day and compresses before encryption. Projected 90% quota usage permanently removes the oldest capture files toward 80%, retaining new input. Capture off performs no automatic cleanup; manual deletion still uses Trash. Legacy files remain readable and may be compacted without changing records on the next enabled write.
 
+Version 0.5.0 cannot read the new compressed format. Before downgrading, retain a 0.5.1-or-newer reader or explicitly export the records you need. Never delete captures or the encryption key to resolve a compatibility issue.
+
 Records link actual pinyin, bounded current-line context, native candidates, displayed order, existing model results and observed human choices. AES-GCM encrypts local captures with a separate Keychain key. Capture-only mode records native choices without loading/calling models. Storage failures pause capture while normal input remains available. Preview, recoverable deletion and local export first disable capture and leave it off afterwards.
 
 Exports are plaintext and need review. Generic records/sft exports require no tokenizer; a compatible local tokenizer enables validated Tev prompt/completion exports. No tokenizer download, data upload or training is automatic. See [the training-data guide](docs/TRAINING_CAPTURE.md) for fields and boundaries.
@@ -140,7 +144,7 @@ Unavailable host text with a valid caret anchor falls back only to verified rece
 
 In cloud mode, the bounded prefix may include existing or pasted text from the input field. Local mode never sends it to cloud. Enhancement off stops model-context reads; independently enabled training capture follows its selected application scope and field settings. Secure input and the IME's own settings remain excluded. Diagnostics contain only source, length, duration and status, never actual text.
 
-### Candidate behavior in 0.5.0
+### Candidate behavior in 0.5.1
 
 | Model result | Display and selection |
 | --- | --- |
@@ -156,7 +160,7 @@ The recommendation is removed from its previous position, so it is not duplicate
 
 ### Installation
 
-The current development branch is **0.5.1** (`feat/training-retention`); the latest formal release is the **[0.5.0 source release](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.0)**; an Apple-notarized installer is not provided. Requirements: Apple Silicon, macOS 14+, Command Line Tools, Python 3.12/3.13, uv, and a working Squirrel 1.1.2 installation with Wanxiang. Full Xcode is not required for this build path. The commands here select the 0.5.1 development branch; record its exact commit for installation. Use the `v0.5.0` tag and its own guide when installing that release.
+This is the **[0.5.1 source release](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.1)**; an Apple-notarized installer is not provided. Requirements: Apple Silicon, macOS 14+, Command Line Tools, Python 3.12/3.13, uv, and a working Squirrel 1.1.2 installation with Wanxiang. Full Xcode is not required for this build path. Installation selects the fixed `v0.5.1` tag; record its exact commit and follow the dedicated guide.
 
 Give [LLM_INSTALL.md](LLM_INSTALL.md) to the LLM assisting with installation. Follow its preflight, backup, build, consent, smoke-test, manual typing, and rollback steps. The commands in the Chinese section are the same commands for English-language installations. Model weights are optional for cloud/off mode and are downloaded separately for local mode. Select TT, Tev 0.8B, or Tev 4B from settings for each application’s local or dual mode. Labels are exactly `✦ TT`, `✦ Tev`, and `✦ Jev`, regardless of recommendation position. Tev uses a pinned local runtime on a dedicated loopback port; it does not replace the system Ollama service or enable cloud inference. Settings expose a separate 0.3–10 second timeout for every model, with restore-default controls. Defaults are 0.6s for Jev/TT/Tev 0.8B and 2s for Tev 4B. Time includes debounce and sampling; continuing input or selection invalidates old results.
 

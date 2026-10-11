@@ -171,3 +171,11 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Result: achieved. Backend/native/build/lint and real-Rime checks passed; installed read-only smoke confirms running 0.5.1 and matching binary. Actual settings UI shows the compression/90%→80% permanent-cleanup explanation and counters. Saved configuration matches the immediate pre-install snapshot; capture remains off, with user path/app scope preserved. No private input was used to test deletion.
 - Publication: implementation is on `feat/training-retention`; closure documentation is synchronized there. This task does not create a formal release. Local receipts and backups stay ignored.
 - Next step: normal use. When the user explicitly enables capture, new writes use compression, older eligible files may be compacted, and capacity pressure retires oldest segments automatically. No required implementation/deployment work remains.
+
+## 2026-10-12 00:11 SGT — GitHub v0.5.1 release package
+
+- Current work: user authorized merging 0.5.1 into main and publishing a GitHub release with bilingual README and LLM_INSTALL synchronized.
+- Expected result: publish daily compressed capture and oldest-first retention; preserve off-by-default consent and exclude all private datasets, dictionaries and credentials.
+- Result: source-package preparation achieved. The original tested-source digest and installed binary match `186487664e1c5d974eaed86792c7f4a560b0957a`; subsequent changes are Markdown only. README and LLM_INSTALL now select `v0.5.1` and explain the format compatibility boundary. Source/installer defaults and the current live capture switch are off.
+- Publication target: [GitHub v0.5.1](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.1). Main and the annotated tag will resolve to the same release commit; only source archives will be provided.
+- Next step: complete the full-history/private-file audit, fast-forward main and create the release, then verify remote refs, notes and downloaded archive. Detailed final receipts stay under ignored local evidence. No runtime reinstall or user settings changes are needed.

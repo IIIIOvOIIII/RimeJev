@@ -31,7 +31,7 @@ If these are missing, stop the dependent step and explain what is missing. Use o
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout feat/training-retention
+git checkout v0.5.1
 git rev-parse HEAD  # Record and retain the exact reviewed revision used for installation.
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
@@ -39,7 +39,7 @@ bash scripts/bootstrap_dev.sh
 
 If the checkout already exists, inspect it first, preserve local changes, and explicitly select the requested release. Do not use a floating `git pull` as an install step.
 
-This guide follows the 0.5.1 `feat/training-retention` development branch. Fetch it explicitly and record the resolved commit from `git rev-parse HEAD` in the local installation report. Run preflight against that exact checkout. For a formal 0.5.0 installation, use the `v0.5.0` tag and the guide in that tag. Never reuse another revision's preflight receipt.
+Use the fixed `v0.5.1` tag for this guide and record the resolved commit from `git rev-parse HEAD` in the local installation report. Runtime code was verified and installed locally at `186487664e1c5d974eaed86792c7f4a560b0957a`; subsequent release changes are Markdown only. That historical receipt does not authorize installation from a different commit or on another machine. Run the exact-source preflight below for the selected checkout; never reuse another revision's receipt.
 
 The bootstrap uses upstream Squirrel commit `876adebaf2f612951dcdca8a591de65401222b9a` under ignored `work/upstream/squirrel`. It must not force-reset an existing different checkout. The native builder pins librime headers to `a251145d3aafa33871824a40bbec04c966bd8b56` and Sparkle source metadata to `41847a58cdef7506b257591fcca6f9495df591d4`.
 
