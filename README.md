@@ -8,7 +8,13 @@ Context-aware Chinese candidate recommendations for **Squirrel (鼠须管) + Rim
 
 RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强、云端 Jev、本地模型、云端＋本地模型** 四种模式；本地模型可选 **this-that-model 1.2、Tev 0.8B 或 Tev 4B**。基础输入不等待模型，按应用启用增强，默认关闭。
 
-### 0.4.0 的候选规则
+### 所有应用默认设置
+
+打开“语境选词设置”，在“设置范围”中选择 **所有应用默认设置**，统一设置模式、本地模型和推荐顺序。没有单独设置的应用会自动继承，无需逐个开启。新的全局默认初始为 **关闭增强**，升级不会把此前某个应用的云端选择变成全局设置。
+
+需要例外时选择 **当前应用单独设置**；单独设置优先，包括明确关闭增强。点击“跟随默认”可移除该应用的覆盖，重新使用全局默认。菜单也提供“当前应用：跟随所有应用默认”。超时仍按模型统一保存；安全输入和输入法自身设置不运行增强。
+
+### 0.4.1 的候选规则
 
 | 模型结果 | 显示与选词 |
 | --- | --- |
@@ -24,7 +30,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 ### 安装
 
-这是 **0.4.0 源码版本**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
+这是 **0.4.1 源码开发版**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
 
 请将 [LLM_INSTALL.md](LLM_INSTALL.md) 交给协助安装的 LLM。它包含环境检查、固定版本依赖、测试、备份、安装、系统授权、手动验收及回退步骤。完整 Xcode 不是前提。不要跳过检查直接运行安装器。
 
@@ -33,7 +39,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout v0.4.0
+git checkout feat/global-default-settings
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 bash scripts/run_quality_gate.sh --gate local
@@ -82,7 +88,13 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 
 RimeJev adds asynchronous contextual recommendations to native Wanxiang candidates. Choose **off, Jev cloud, local, or cloud + local** per application. Select **this-that-model 1.2, Tev 0.8B, or Tev 4B** separately as the one local backend. Enhancement is off by default, and normal input never waits for a model.
 
-### Candidate behavior in 0.4.0
+### Defaults for all applications
+
+Choose **All applications defaults** in the settings scope to configure the mode, local backend, and priority once. Apps without overrides inherit it automatically, without allowlist enrollment. The new global default starts **off**; upgrading never promotes a previously selected app's cloud mode into a global choice.
+
+Choose **Current application settings** to create an exception. Explicit app settings, including off, take precedence. **Follow default** removes the complete app override and resumes inheritance. Timeouts remain shared per model. Secure input and the input method's own settings remain excluded.
+
+### Candidate behavior in 0.4.1
 
 | Model result | Display and selection |
 | --- | --- |

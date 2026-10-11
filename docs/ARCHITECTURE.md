@@ -26,3 +26,11 @@ Each provider has its own coordinator/deadline and validates against the same or
 The v2 Lua payload binds epoch, raw input, complete candidate-window signature, at most two distinct keys, and at most one cloud/local source each. Native first is always emitted first, requested distinct words follow, then remaining original objects in relative order. A first-word match gets its source badge; duplicate recommendations merge sources. The applied marker is the whole v2 payload. No generated word or placeholder is inserted.
 
 Keychain direct keys are user-entered and masked, not settings fields. The Jev-only runtime credential flag reads a bounded private pipe; legacy Vault mode stays separate. Shift feedback compares actual Rime ascii_mode before/after modifier processing and uses its own nonactivating panel, leaving candidate selection untouched.
+
+## 0.4.1 default profile and app overrides
+
+Optional `defaultMode`, `defaultLocalModel`, and `defaultModelOrder` resolve to off/TT/Jev-first when absent. The old `mode` field is a last-selection value and is never a global default. An `appModes` key creates a complete override, preserving legacy local IDs and former fallback choices. First per-app edits snapshot the effective inherited profile before changing one field. Removing an override removes its mode/local/order and legacy enrollment record; it then inherits again.
+
+`allowedApps` remains encoded for compatibility but no longer gates enhancement. Eligibility uses the resolved mode plus secure-input and known-app checks; the IME's own settings are excluded. Global edits invalidate cached decisions and rebuild all adapters, while runtime selection follows the current app's effective profile. A reused input controller refreshes its coordinator when its application identity changes.
+
+Settings open in the all-app default scope, with a separate current-app scope and follow-default button. Editing the default does not force-load a model for an app that retains a different override. Download selection follows the edited scope; credential and timeout controls remain global. The user requested the live default to stay off during this upgrade and UI verification.

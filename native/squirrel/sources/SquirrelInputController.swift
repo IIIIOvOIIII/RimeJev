@@ -59,9 +59,9 @@ final class SquirrelInputController: IMKInputController {
       self.client = nextClient
     }
     if let app = client?.bundleIdentifier(), currentApp != app {
-      jev.invalidate(clearContext: true)
       currentApp = app
       updateAppOptions()
+      jev.activate()
     }
 
     jev.beforeEvent(event)
@@ -275,14 +275,17 @@ final class SquirrelInputController: IMKInputController {
     update.target = self
 
     let menu = NSMenu()
-    for (title, action, mode) in [("语境选词：关闭增强", #selector(jevOff), "off"),
-                                   ("语境选词：云端 Jev", #selector(jevCloud), "jev"),
-                                   ("语境选词：本地模型", #selector(jevLocal), "local"),
-                                   ("语境选词：云端＋本地", #selector(jevDual), "dual")] {
+    let inherited=NSMenuItem(title:"当前应用：跟随所有应用默认",action:#selector(jevFollowDefault),keyEquivalent:"")
+    inherited.target=self;inherited.state=JevSettings.current.hasAppOverride(currentApp) ? .off : .on
+    menu.addItem(inherited)
+    for (title, action, mode) in [("当前应用：关闭增强", #selector(jevOff), "off"),
+                                   ("当前应用：云端 Jev", #selector(jevCloud), "jev"),
+                                   ("当前应用：本地模型", #selector(jevLocal), "local"),
+                                   ("当前应用：云端＋本地", #selector(jevDual), "dual")] {
       let item=NSMenuItem(title:title,action:action,keyEquivalent:"")
-      item.target=self;item.state=jev.enhancementMode==mode ? .on : .off;menu.addItem(item)
+      item.target=self;item.state=JevSettings.current.hasAppOverride(currentApp) && jev.enhancementMode==mode ? .on : .off;menu.addItem(item)
     }
-    menu.addItem(NSMenuItem(title: "所选增强仅在已启用的应用生效", action: nil, keyEquivalent: ""))
+    menu.addItem(NSMenuItem(title:JevSettings.current.hasAppOverride(currentApp) ? "当前应用的单独设置优先" : "未单独设置的应用自动使用默认配置",action:nil,keyEquivalent:""))
     let jevSettings = NSMenuItem(title: "语境选词设置…", action: #selector(showJevSettings), keyEquivalent: "")
     jevSettings.target = self
     menu.addItem(jevSettings)
@@ -298,6 +301,7 @@ final class SquirrelInputController: IMKInputController {
   }
 
   @objc func showJevSettings() { JevPreferences.show(for: self) }
+  @objc func jevFollowDefault() {jev.followDefault()}
   @objc func jevOff() { jev.chooseMode("off") }
   @objc func jevLocal() { jev.chooseMode("local") }
   @objc func jevDual() { jev.chooseMode("dual") }

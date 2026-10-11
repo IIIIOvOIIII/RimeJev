@@ -21,25 +21,87 @@ struct JevSettings: Codable {
   var appModelOrders: [String: [String]]?
   var credentialSource: String?
   var credentialRevision: Int64?
-  func enhancementMode(for app: String) -> String {
-    let stored=appModes[app] ?? "off"
-    if JevProviders.local.contains(stored) {return "local"}
-    return ["off","jev","dual"].contains(stored) ? stored : "off"
+  var defaultMode: String?
+  var defaultLocalModel: String?
+  var defaultModelOrder: [String]?
+  private static let modes=["off","jev","local","dual"]
+  private static func normalizedMode(_ value:String)->String {
+    if JevProviders.local.contains(value) {return "local"}
+    return modes.contains(value) ? value : "off"
   }
-  func localModel(for app: String) -> String {
-    let stored=appLocalModels?[app] ?? appModes[app] ?? "local"
-    return JevProviders.local.contains(stored) ? stored : "local"
+  private static func validOrder(_ value:[String])->Bool {
+    value.count==2 && Set(value)==Set(["jev","local"])
   }
-  func modelOrder(for app: String) -> [String] {
-    appModelOrders?[app] == ["local","jev"] ? ["local","jev"] : ["jev","local"]
+  var globalMode:String {
+    guard let value=defaultMode,Self.modes.contains(value) else {return "off"}
+    return value
   }
-  func providers(for app: String) -> [String] {
+  var globalLocalModel:String {
+    guard let value=defaultLocalModel,JevProviders.local.contains(value) else {return "local"}
+    return value
+  }
+  var globalOrder:[String] {
+    guard let value=defaultModelOrder,Self.validOrder(value) else {return ["jev","local"]}
+    return value
+  }
+  func hasAppOverride(_ app:String)->Bool {!app.isEmpty && appModes[app] != nil}
+  func enhancementMode(for app:String)->String {
+    guard !app.isEmpty else {return "off"}
+    return appModes[app].map(Self.normalizedMode) ?? globalMode
+  }
+  func localModel(for app:String)->String {
+    guard hasAppOverride(app) else {return globalLocalModel}
+    let value=appLocalModels?[app] ?? appModes[app] ?? "local"
+    return JevProviders.local.contains(value) ? value : "local"
+  }
+  func modelOrder(for app:String)->[String] {
+    guard hasAppOverride(app) else {return globalOrder}
+    let value=appModelOrders?[app] ?? ["jev","local"]
+    return Self.validOrder(value) ? value : ["jev","local"]
+  }
+  func providers(for app:String)->[String] {
     switch enhancementMode(for:app) {
-    case "jev": return ["jev"]
-    case "local": return [localModel(for:app)]
-    case "dual": return modelOrder(for:app).map {$0=="local" ? localModel(for:app) : "jev"}
-    default: return []
+    case "jev":return ["jev"]
+    case "local":return [localModel(for:app)]
+    case "dual":return modelOrder(for:app).map {$0=="local" ? localModel(for:app) : "jev"}
+    default:return []
     }
+  }
+  func permitsEnhancement(for app:String,secureInput:Bool)->Bool {
+    !secureInput && !app.isEmpty && app != "im.lynx.inputmethod.RimeJev" && !providers(for:app).isEmpty
+  }
+  mutating func setGlobalMode(_ value:String) {
+    if Self.modes.contains(value) {defaultMode=value}
+  }
+  mutating func setGlobalLocalModel(_ value:String) {
+    if JevProviders.local.contains(value) {defaultLocalModel=value}
+  }
+  mutating func setGlobalOrder(_ value:[String]) {
+    if Self.validOrder(value) {defaultModelOrder=value}
+  }
+  private mutating func materializeOverride(for app:String) {
+    let selectedMode=enhancementMode(for:app),local=localModel(for:app),order=modelOrder(for:app)
+    appModes[app]=selectedMode
+    if appLocalModels==nil {appLocalModels=[:]};appLocalModels?[app]=local
+    if appModelOrders==nil {appModelOrders=[:]};appModelOrders?[app]=order
+    if !allowedApps.contains(app) {allowedApps.append(app)}
+  }
+  mutating func setAppMode(_ value:String,for app:String) {
+    guard !app.isEmpty,Self.modes.contains(value) else {return}
+    materializeOverride(for:app);appModes[app]=value;mode=value
+  }
+  mutating func setAppLocalModel(_ value:String,for app:String) {
+    guard !app.isEmpty,JevProviders.local.contains(value) else {return}
+    materializeOverride(for:app);appLocalModels?[app]=value
+  }
+  mutating func setAppOrder(_ value:[String],for app:String) {
+    guard !app.isEmpty,Self.validOrder(value) else {return}
+    materializeOverride(for:app);appModelOrders?[app]=value
+  }
+  mutating func followDefault(for app:String) {
+    guard !app.isEmpty else {return}
+    appModes.removeValue(forKey:app);appLocalModels?.removeValue(forKey:app);appModelOrders?.removeValue(forKey:app)
+    allowedApps.removeAll {$0==app}
   }
   var effectiveCredentialSource: String {
     credentialSource ?? ((vaultURL?.isEmpty==false && vaultTokenHelper?.isEmpty==false) ? "vault" : "keychain")
@@ -369,7 +431,7 @@ final class JevInputAdapter {
   var provider: String {enhancementMode=="dual" ? "dual" : activeProviders.first ?? "off"}
   var eligible: Bool {
     guard let controller else {return false}
-    return !IsSecureEventInputEnabled() && !activeProviders.isEmpty && JevSettings.current.allowedApps.contains(controller.currentApp)
+    return JevSettings.current.permitsEnhancement(for:controller.currentApp,secureInput:IsSecureEventInputEnabled())
   }
   private func rebuildCoordinator() {
     let settings=JevSettings.current
@@ -419,29 +481,28 @@ final class JevInputAdapter {
     JevRuntimeManager.shared.ensureRunning(providers:eligible ? activeProviders : [])
   }
   private func saveSelection() {
-    Self.invalidateAll()
-    if let app=controller?.currentApp,!JevSettings.current.allowedApps.contains(app) {JevSettings.current.allowedApps.append(app)}
-    JevSettings.save();rebuildCoordinator()
-    JevRuntimeManager.shared.ensureRunning(providers:activeProviders)
+    JevSettings.save();Self.reloadPolicies()
+    JevRuntimeManager.shared.ensureRunning(providers:eligible ? activeProviders : [])
     controller?.rimeUpdate()
   }
   func chooseMode(_ mode:String) {
-    guard ["off","jev","local","dual"].contains(mode),let app=controller?.currentApp else {return}
-    let local=JevSettings.current.localModel(for:app)
-    var locals=JevSettings.current.appLocalModels ?? [:];locals[app]=local
-    JevSettings.current.appLocalModels=locals
-    JevSettings.current.mode=mode;JevSettings.current.appModes[app]=mode
-    saveSelection()
+    guard let app=controller?.currentApp else {return}
+    JevSettings.current.setAppMode(mode,for:app);saveSelection()
   }
   func chooseLocalModel(_ model:String) {
-    guard JevProviders.local.contains(model),let app=controller?.currentApp else {return}
-    var values=JevSettings.current.appLocalModels ?? [:];values[app]=model
-    JevSettings.current.appLocalModels=values;saveSelection()
+    guard let app=controller?.currentApp else {return}
+    JevSettings.current.setAppLocalModel(model,for:app);saveSelection()
   }
   func chooseOrder(_ order:[String]) {
-    guard Set(order)==Set(["jev","local"]),order.count==2,let app=controller?.currentApp else {return}
-    var values=JevSettings.current.appModelOrders ?? [:];values[app]=order
-    JevSettings.current.appModelOrders=values;saveSelection()
+    guard let app=controller?.currentApp else {return}
+    JevSettings.current.setAppOrder(order,for:app);saveSelection()
+  }
+  func chooseDefaultMode(_ mode:String) {JevSettings.current.setGlobalMode(mode);saveSelection()}
+  func chooseDefaultLocalModel(_ model:String) {JevSettings.current.setGlobalLocalModel(model);saveSelection()}
+  func chooseDefaultOrder(_ order:[String]) {JevSettings.current.setGlobalOrder(order);saveSelection()}
+  func followDefault() {
+    guard let app=controller?.currentApp else {return}
+    JevSettings.current.followDefault(for:app);saveSelection()
   }
   func sortLock() {sortingLocked=true;modelCoordinators.values.forEach {$0.lockSorting()}}
   func commitLock() {sortingLocked=true;committingLocked=true;modelCoordinators.values.forEach {$0.lockCommit()}}
@@ -650,12 +711,14 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
   private static var retained:JevPreferences?
   private weak var inputOwner:SquirrelInputController?
   private let mode=NSPopUpButton(), localModel=NSPopUpButton(), timeoutModel=NSPopUpButton()
+  private let scope=NSPopUpButton(), follow=NSButton()
+  private let scopeHint=NSTextField(wrappingLabelWithString:"")
   private let status=NSTextField(wrappingLabelWithString:""), model=NSTextField(wrappingLabelWithString:"")
   private let install=NSButton(),up=NSButton(),down=NSButton()
   private let orderTable=NSTableView()
   private let localRow=NSStackView(),orderRow=NSStackView()
   private let timeoutField=NSTextField(string:"0.6"), timeoutSave=NSButton(), timeoutReset=NSButton()
-  private let timeoutHint=NSTextField(wrappingLabelWithString:"0.3–10 秒；按模型保存，各应用共用。计时包含输入防抖与候选采样。")
+  private let timeoutHint=NSTextField(wrappingLabelWithString:"0.3–10 秒；按模型保存，各应用共用。从停止键入起计时，继续输入或选词会作废旧结果。")
   private let keyField=NSSecureTextField(),keySave=NSButton(),keyDelete=NSButton()
   private let keyHint=NSTextField(wrappingLabelWithString:"")
   private let progress=NSProgressIndicator()
@@ -664,11 +727,23 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
   private var keyBusy=false
   private var app:String {inputOwner?.currentApp ?? ""}
   private var providers:[String] {inputOwner?.jev.activeProviders ?? []}
+  private var editingDefaults:Bool {scope.indexOfSelectedItem==0}
+  private var selectedMode:String {editingDefaults ? JevSettings.current.globalMode : JevSettings.current.enhancementMode(for:app)}
+  private var selectedLocalModel:String {editingDefaults ? JevSettings.current.globalLocalModel : JevSettings.current.localModel(for:app)}
+  private var selectedOrder:[String] {editingDefaults ? JevSettings.current.globalOrder : JevSettings.current.modelOrder(for:app)}
+  private var displayedProviders:[String] {
+    switch selectedMode {
+    case "jev":return ["jev"]
+    case "local":return [selectedLocalModel]
+    case "dual":return selectedOrder.map {$0=="local" ? selectedLocalModel : "jev"}
+    default:return []
+    }
+  }
   private var selectedTimeoutProvider:String {JevProviders.active.indices.contains(timeoutModel.indexOfSelectedItem) ? JevProviders.active[timeoutModel.indexOfSelectedItem] : "jev"}
   static func show(for inputOwner:SquirrelInputController) {
     inputOwner.jev.invalidate(clearContext:true)
     if retained==nil {retained=JevPreferences(inputOwner:inputOwner)}
-    retained?.inputOwner=inputOwner;retained?.syncSelection();retained?.keyField.stringValue=""
+    retained?.inputOwner=inputOwner;retained?.scope.selectItem(at:0);retained?.syncSelection();retained?.keyField.stringValue=""
     retained?.showWindow(nil);NSApp.activate(ignoringOtherApps:true)
     retained?.refreshKeyStatus();retained?.refreshStatus()
   }
@@ -683,9 +758,13 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
     func button(_ b:NSButton,_ title:String,_ action:Selector) {b.title=title;b.target=self;b.action=action;b.bezelStyle = .rounded}
     func row(_ views:[NSView])->NSStackView {let r=NSStackView(views:views);r.orientation = .horizontal;r.spacing=8;return r}
     let title=NSTextField(labelWithString:"语境选词");title.font = .boldSystemFont(ofSize:20);content.addArrangedSubview(title)
+    scope.addItems(withTitles:["所有应用默认设置","当前应用单独设置"])
+    scope.target=self;scope.action=#selector(scopeChanged)
+    button(follow,"跟随默认",#selector(followDefaults))
+    content.addArrangedSubview(row([NSTextField(labelWithString:"设置范围"),scope,follow]));content.addArrangedSubview(scopeHint)
     mode.addItems(withTitles:["关闭增强","使用云端 Jev 模型","使用本地模型","使用云端＋本地模型"])
     mode.target=self;mode.action=#selector(modeChanged);content.addArrangedSubview(mode)
-    let explanation=NSTextField(wrappingLabelWithString:"模式、本地模型和推荐顺序按当前应用保存。云端模式会发送有限上下文与候选。无结果时保留万象候选，输入不等待模型。")
+    let explanation=NSTextField(wrappingLabelWithString:"可统一设置模式、本地模型和推荐顺序，也可为当前应用单独覆盖。云端模式会发送有限上下文与候选；无结果时保留万象候选。")
     content.addArrangedSubview(explanation)
     localModel.addItems(withTitles:JevProviders.local.map(JevProviders.name));localModel.target=self;localModel.action=#selector(localChanged)
     localRow.orientation = .horizontal;localRow.spacing=8;localRow.addArrangedSubview(NSTextField(labelWithString:"本地模型"));localRow.addArrangedSubview(localModel);content.addArrangedSubview(localRow)
@@ -711,25 +790,32 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
     button(install,"下载或校验所选本地模型",#selector(installModel));content.addArrangedSubview(install)
     progress.style = .bar;progress.isIndeterminate=true;progress.isDisplayedWhenStopped=false
     progress.widthAnchor.constraint(equalToConstant:510).isActive=true;content.addArrangedSubview(progress);content.addArrangedSubview(status)
-    for label in [explanation,model,status,timeoutHint,keyHint] {label.widthAnchor.constraint(lessThanOrEqualToConstant:552).isActive=true}
+    for label in [explanation,model,status,timeoutHint,keyHint,scopeHint] {label.widthAnchor.constraint(lessThanOrEqualToConstant:552).isActive=true}
     window.center();syncSelection()
     timer=Timer.scheduledTimer(withTimeInterval:2,repeats:true) { [weak self] _ in self?.refreshStatus() }
   }
   required init?(coder:NSCoder) {fatalError("init(coder:) is not supported")}
   private func syncSelection() {
-    let selected=JevSettings.current.enhancementMode(for:app)
+    let selected=selectedMode
+    follow.isHidden=editingDefaults;follow.isEnabled=JevSettings.current.hasAppOverride(app)
+    let appName=NSRunningApplication.runningApplications(withBundleIdentifier:app).first?.localizedName ?? "当前应用"
+    if editingDefaults {
+      scopeHint.stringValue="未单独设置的应用自动使用此默认配置。已有应用的单独设置优先。"
+    } else {
+      scopeHint.stringValue=appName+(JevSettings.current.hasAppOverride(app) ? "：使用单独设置；可恢复跟随默认。" : "：跟随所有应用默认；修改下方选项将建立单独设置。")
+    }
     mode.selectItem(at:["off","jev","local","dual"].firstIndex(of:selected) ?? 0)
-    localModel.selectItem(at:JevProviders.local.firstIndex(of:JevSettings.current.localModel(for:app)) ?? 0)
+    localModel.selectItem(at:JevProviders.local.firstIndex(of:selectedLocalModel) ?? 0)
     localRow.isHidden = !["local","dual"].contains(selected);orderRow.isHidden=selected != "dual"
-    let current=providers.first ?? "jev"
+    let current=displayedProviders.first ?? "jev"
     timeoutModel.selectItem(at:JevProviders.active.firstIndex(of:current) ?? 0);timeoutModelChanged()
     orderTable.reloadData();orderTable.selectRowIndexes(IndexSet(integer:0),byExtendingSelection:false);updateArrows()
   }
   func numberOfRows(in tableView:NSTableView)->Int {2}
   func tableView(_ tableView:NSTableView,objectValueFor tableColumn:NSTableColumn?,row:Int)->Any? {
-    let values=JevSettings.current.modelOrder(for:app)
+    let values=selectedOrder
     guard values.indices.contains(row) else {return nil}
-    let provider=values[row]=="local" ? JevSettings.current.localModel(for:app) : "jev"
+    let provider=values[row]=="local" ? selectedLocalModel : "jev"
     return "\(row+1).  "+JevProviders.name(provider)
   }
   func tableViewSelectionDidChange(_ notification:Notification) {updateArrows()}
@@ -737,23 +823,40 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
   private func move(_ delta:Int) {
     let index=orderTable.selectedRow,next=index+delta
     guard (0...1).contains(index),(0...1).contains(next) else {return}
-    var order=JevSettings.current.modelOrder(for:app);order.swapAt(index,next);inputOwner?.jev.chooseOrder(order)
+    var order=selectedOrder;order.swapAt(index,next)
+    if editingDefaults {inputOwner?.jev.chooseDefaultOrder(order)} else {inputOwner?.jev.chooseOrder(order)}
+    updateScopeHint()
     orderTable.reloadData();orderTable.selectRowIndexes(IndexSet(integer:next),byExtendingSelection:false);updateArrows();refreshStatus()
   }
   @objc private func orderUp() {move(-1)}
   @objc private func orderDown() {move(1)}
+  @objc private func scopeChanged() {syncSelection();refreshStatus()}
+  @objc private func followDefaults() {
+    guard !editingDefaults else {return}
+    inputOwner?.jev.followDefault();syncSelection();refreshStatus()
+  }
+  private func updateScopeHint() {
+    guard !editingDefaults else {return}
+    follow.isEnabled=JevSettings.current.hasAppOverride(app)
+    let appName=NSRunningApplication.runningApplications(withBundleIdentifier:app).first?.localizedName ?? "当前应用"
+    scopeHint.stringValue=appName+"：使用单独设置；可恢复跟随默认。"
+  }
   @objc private func modeChanged() {
     let modes=["off","jev","local","dual"]
     guard modes.indices.contains(mode.indexOfSelectedItem) else {return}
-    inputOwner?.jev.chooseMode(modes[mode.indexOfSelectedItem]);syncSelection();refreshStatus()
+    let value=modes[mode.indexOfSelectedItem]
+    if editingDefaults {inputOwner?.jev.chooseDefaultMode(value)} else {inputOwner?.jev.chooseMode(value)}
+    syncSelection();refreshStatus()
   }
   @objc private func localChanged() {
     guard JevProviders.local.indices.contains(localModel.indexOfSelectedItem) else {return}
-    inputOwner?.jev.chooseLocalModel(JevProviders.local[localModel.indexOfSelectedItem]);syncSelection();refreshStatus()
+    let value=JevProviders.local[localModel.indexOfSelectedItem]
+    if editingDefaults {inputOwner?.jev.chooseDefaultLocalModel(value)} else {inputOwner?.jev.chooseLocalModel(value)}
+    syncSelection();refreshStatus()
   }
   @objc private func timeoutModelChanged() {
     timeoutField.stringValue=String(Double(JevProviders.timeoutMilliseconds(provider:selectedTimeoutProvider,overrides:JevSettings.current.timeoutOverrides))/1000)
-    timeoutHint.stringValue="0.3–10 秒；按模型保存，各应用共用。计时包含输入防抖与候选采样。"
+    timeoutHint.stringValue="0.3–10 秒；按模型保存，各应用共用。从停止键入起计时，继续输入或选词会作废旧结果。"
   }
   @objc private func saveTimeout() {
     guard let milliseconds=JevProviders.parseTimeoutSeconds(timeoutField.stringValue) else {timeoutHint.stringValue="请输入 0.3–10 秒之间的数值。";return}
@@ -803,10 +906,14 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
   @objc private func deleteKey() {editKey(deleting:true)}
   private func refreshStatus() {
     guard window?.isVisible==true else {return}
-    statusGeneration &+= 1;let generation=statusGeneration,active=providers
-    model.stringValue=active.isEmpty ? "使用万象原有候选。" : "当前模型："+active.map(JevProviders.name).joined(separator:" ＋ ")+(active.count==2 ? "\n列表从上到下决定推荐优先级；命中首选的模型优先标注。" : "")
-    install.isEnabled=["local","dual"].contains(inputOwner?.jev.enhancementMode ?? "off") && download?.isRunning != true
+    statusGeneration &+= 1;let generation=statusGeneration,active=providers,configured=displayedProviders
+    model.stringValue=configured.isEmpty ? "使用万象原有候选。" : (editingDefaults ? "默认模型：" : "当前模型：")+configured.map(JevProviders.name).joined(separator:" ＋ ")+(configured.count==2 ? "\n列表从上到下决定推荐优先级；命中首选的模型优先标注。" : "")
+    install.isEnabled=["local","dual"].contains(selectedMode) && download?.isRunning != true
     guard download?.isRunning != true else {return}
+    if editingDefaults {
+      status.stringValue=configured.isEmpty ? "默认增强已关闭，未单独设置的应用使用万象候选。" : "未单独设置的应用将自动使用上述默认模型。"
+      return
+    }
     if active.isEmpty {status.stringValue="增强已关闭，正常输入不受影响。";return}
     DispatchQueue.global().async { [weak self] in
       let descriptions=active.map { provider -> String in
@@ -824,7 +931,7 @@ final class JevPreferences: NSWindowController, NSTableViewDataSource, NSTableVi
   }
   @objc private func installModel() {
     guard download?.isRunning != true else {return}
-    let settings=JevSettings.current,provider=settings.localModel(for:app),task=Process()
+    let settings=JevSettings.current,provider=selectedLocalModel,task=Process()
     guard let arguments=JevProviders.downloadArguments(provider:provider,projectRoot:settings.projectRoot,modelPath:settings.modelPath) else {return}
     statusGeneration &+= 1
     task.executableURL=URL(fileURLWithPath:settings.projectRoot+"/.venv/bin/python");task.currentDirectoryURL=URL(fileURLWithPath:settings.projectRoot);task.arguments=arguments

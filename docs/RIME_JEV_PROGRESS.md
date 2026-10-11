@@ -54,3 +54,17 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Result: source-package preparation achieved. The preflight source receipt was recomputed and matches `1b1f713df440ef4cfb4e2ca97ad5c15c244077a7`; subsequent changes are documentation only. README and LLM_INSTALL now select `v0.4.0`. Runtime behavior is unchanged from the installed version.
 - Publication record: [GitHub v0.4.0](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.4.0). Remote main/tag identity and the published release record are verified at publication; local evidence stays outside the repository.
 - Next: normal use and issue-driven fixes. This publication does not require another local app installation.
+
+## 2026-10-11 — 0.4.1 all-application defaults
+
+- Current work: add global default mode/local backend/priority plus explicit application overrides and a follow-default action.
+- Expected: unconfigured apps inherit defaults without allowlist enrollment; explicit per-app choices including off remain authoritative. Default changes invalidate existing requests. Secure input and the input method's own settings are excluded.
+- User choice: keep the new global default off initially; do not enable cloud or local enhancement globally during installation or live UI checks.
+- Scope: focused native settings/UI change, isolated settings/migration tests and existing required gate; local installation follows successful preflight. No real model or credential calls are needed for verification. At most five recovery attempts per failure class.
+- Next: implement and validate profile resolution, persistence and UI scope switching, then local deployment.
+
+### Implementation checks
+
+- Global/app resolution and persistence tests passed across eight groups and six separate loader scenarios using the actual Settings implementation and disposable storage. Existing native compilation and signature verification passed.
+- The previous allowlist gate was removed; secure input, empty app identities and the IME's own settings stay ineligible. Global edits invalidate/rebuild existing coordinators; reused controllers refresh on app identity changes.
+- Next: complete the required preflight, install locally and inspect the live scope UI while leaving the global default off.

@@ -19,6 +19,7 @@ swiftc -parse-as-library native/JevBadge.swift native/tests/JevBadgeTests.swift 
 work/JevBadgeTests
 
 .venv/bin/python scripts/test_runtime_lifecycle.py
+.venv/bin/python scripts/test_settings_profiles.py
 
 for component in CandidatePlan Keychain LanguageIndicator; do
   swiftc -parse-as-library native/JevCore.swift "native/Jev${component}.swift" "native/tests/Jev${component}Tests.swift" -framework AppKit -framework Security -o "work/Jev${component}Tests"

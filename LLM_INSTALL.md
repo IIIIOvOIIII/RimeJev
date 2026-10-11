@@ -1,4 +1,4 @@
-# LLM_INSTALL — RimeJev 0.4.0
+# LLM_INSTALL — RimeJev 0.4.1
 
 This is the dedicated installation contract for an LLM helping a user. 中文：这是提供给安装助手的独立指引；先检查、备份、验证，再安装，不能把构建成功当成真实输入验收。
 
@@ -30,8 +30,8 @@ If these are missing, stop the dependent step and explain what is missing. Use o
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout v0.4.0
-git rev-parse HEAD  # Record the exact release revision used for installation.
+git checkout feat/global-default-settings
+git rev-parse HEAD  # Record and retain the exact reviewed revision used for installation.
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 ```
@@ -93,7 +93,9 @@ Tev accepts at most 23 candidate options plus `none`. Do not omit the abstention
 
 New users can enter the Jev API key directly in **鼠须管 Jev 设置 → Jev API 密钥**. The field is a secure password control. Saving stores an exact generic-password item in macOS Keychain (service `RimeJev`, account `Jev API`), clears the input field, and shows saved status without redisplaying the key. Let the user enter the real key; do not ask for it in chat, retrieve it for screenshots, or put it in commands. The caller performs Keychain work off the key-handling/UI thread. The native process sends the key to Jev's child once through stdin, with bounded JSON framing and no key in argv/env/settings. Missing or rejected credentials leave native input available. Deleting the saved key disables direct credentials rather than silently returning to Vault.
 
-Four per-app enhancement modes are available: off, cloud, local, and cloud + local. A separate selector chooses TT/Tev 0.8B/Tev 4B. Dual mode starts exactly one local backend plus Jev, with the two-row Up/Down list determining recommendation priority. Legacy per-app `tev-0.8b` and `tev-4b` settings migrate in place to the equivalent local-only behavior. Never enable cloud for a previously local-only app during migration. Timeouts remain independent per model.
+0.4.1 adds global defaults plus complete per-app overrides. The global mode initially remains off; preserve this unless the user explicitly chooses another default. Never derive a global mode from legacy `mode` (the last app choice), and never reset existing app modes or timeout overrides. New apps inherit mode/local model/order without enrollment. Existing `appModes` entries override the whole profile; explicit off beats an active default. The settings scope selector and “Follow default” action manage these choices. Selecting a cloud-containing default enables cloud for unconfigured apps, so the user must choose it themselves. Tests can exercise active global profiles in isolated fixtures without changing the user's live default.
+
+Four enhancement modes are available: off, cloud, local, and cloud + local. A separate selector chooses TT/Tev 0.8B/Tev 4B. Dual mode starts exactly one local backend plus Jev, with the two-row Up/Down list determining recommendation priority. Legacy per-app `tev-0.8b` and `tev-4b` settings migrate in place to the equivalent local-only behavior. Never enable cloud for a previously local-only app during migration. Timeouts remain independent per model.
 
 Existing installations may retain the legacy credential service path below. Saving a direct key explicitly selects Keychain; a Keychain error must not fall back to the service. No secret migration is performed automatically.
 
@@ -156,6 +158,7 @@ Check these cases:
 - If a timely confident model decision matches the original first word, the order stays unchanged and that word gets `✦ Jev` or `✦ TT` / `✦ Tev`.
 - In dual mode, if neither model matches first, slots 2/3 follow the configured order. If either matches first, badge first and put the other distinct result second. The next unused native word follows. Same-word recommendations merge source labels without duplication. Missing results leave native fillers. Single-model behavior remains first-preserved/second-recommended.
 - Space selects the original first word. `2` selects the displayed second word. `3` selects the displayed third word. Badges never appear in committed text.
+- Verify that settings initially show all-app defaults off; current-app scope shows the inherited/overridden state. Verify inheritance and reset with isolated test profiles if the user wants the live global default kept off.
 - Move the priority rows both ways and verify persistence; switch all four modes and all three local variants. Only one local process may be active alongside Jev.
 - Press Shift to change Chinese/English, checking the short separate indicator and unchanged focus. Shift combinations that do not change Rime mode must not display a false notification.
 - Turning enhancement off restores native order. No result, timeout, missing credentials, and model loading must not block native selection.
