@@ -38,6 +38,28 @@ def compile_probe(directory):
         }
 '''
     generated = directory / 'rime_bridge_probe.mm'
+    source = source.replace('api->set_option(s, "ascii_mode", False);',
+                            'api->set_option(s, "ascii_mode", [input[@"ascii_mode"] boolValue]);')
+    extension += r'''
+        NSMutableArray *keySteps = [NSMutableArray array];
+        for (NSDictionary *step in input[@"key_steps"] ?: @[]) {
+          NSMutableDictionary *observed = [NSMutableDictionary dictionary];
+          observed[@"accepted"] = @(api->process_key(s, [step[@"key"] intValue], [step[@"modifiers"] intValue]));
+          RIME_STRUCT(RimeContext, pageContext);
+          if (api->get_context(s, &pageContext)) {
+            [observed addEntriesFromDictionary:state(api, s, pageContext)];
+            observed[@"count"] = @(pageContext.menu.num_candidates);
+            api->free_context(&pageContext);
+          }
+          RIME_STRUCT(RimeCommit, keyCommit);
+          if (api->get_commit(s, &keyCommit)) {
+            observed[@"committed"] = keyCommit.text ? [NSString stringWithUTF8String:keyCommit.text] : @"";
+            api->free_commit(&keyCommit);
+          }
+          [keySteps addObject:observed];
+        }
+        output[@"key_steps"] = keySteps;
+'''
     generated.write_text(source.replace(anchor, extension + anchor))
     binary = directory / 'rime_bridge_probe'
     subprocess.run([
@@ -290,7 +312,42 @@ def dual_model_tests(discovery, protected_fixture, submissions):
     return len(rows) - start, len(invalid)
 
 
+def punctuation_paging_tests():
+    key = lambda value, modifiers=0: {'key': ord(value), 'modifiers': modifiers}
+    for recommendation in ({}, {'promote_index': 2, 'provider': 'jev'}):
+        row = probe(dict(id=f'punctuation-paging-{bool(recommendation)}', pinyin='sj', limit=128,
+                         key_steps=[key(','), key('.'), key('.'), key(','), key(',')],
+                         commit_key=ord('2'), **recommendation))
+        assert [step['page'] for step in row['key_steps']] == [0, 1, 2, 1, 0]
+        assert all(step['accepted'] and step['input'] == 'sj' and not step.get('committed')
+                   for step in row['key_steps'])
+        expected = row.get('reordered', row['candidates'])
+        committed(row, expected[1])
+    final = probe(dict(id='punctuation-last-page', pinyin='sj', limit=128,
+                      key_steps=[key('.')] * 18, commit_key=ord('2')))
+    assert final['key_steps'][-1]['page'] == final['key_steps'][-2]['page'] == 15
+    assert all(step['input'] == 'sj' and not step.get('committed') for step in final['key_steps'])
+    committed(final, final['candidates'][121])
+    single = probe(dict(id='punctuation-single-candidate', pinyin='qiche',
+                        key_steps=[key(','), key('.')], commit_key=ord(' ')))
+    assert all(step['page'] == 0 and step['input'] == 'qiche' and not step.get('committed')
+               for step in single['key_steps'])
+    committed(single, '汽车')
+    for punctuation, text in [(',', '，'), ('.', '。')]:
+        normal = probe(dict(id=f'punctuation-no-menu-{ord(punctuation)}', pinyin='',
+                            key_steps=[key(punctuation)]))
+        assert normal['key_steps'][0].get('committed') == text
+        ascii_row = probe(dict(id=f'punctuation-ascii-{ord(punctuation)}', pinyin='', ascii_mode=True,
+                               key_steps=[key(punctuation)]))
+        assert not ascii_row['key_steps'][0]['accepted'] and not ascii_row['key_steps'][0].get('committed')
+    modified = probe(dict(id='punctuation-modifier-keys', pinyin='sj',
+                          key_steps=[key('.', 1), key(',', 1), key('.', 4), key(',', 4)]))
+    assert all(step['page'] == 0 for step in modified['key_steps'])
+    print('Punctuation paging PASS: previous/next, first/last/single boundaries, post-page selection, punctuation and English fallback', flush=True)
+
+
 def main(protected_fixture):
+    punctuation_paging_tests()
     sj = {'pinyin': 'sj', 'limit': 128, 'sample_candidates': True}
     discovery = probe(dict(sj, id='sj-discovery'))
     sampling_unchanged(discovery)
@@ -445,6 +502,8 @@ def main(protected_fixture):
         'sample_batches': discovery['sample_batches'], 'sampling_state_unchanged': True,
         'navigated_state': navigated['sampling_before'], 'partial_sample_raw_count': partial_raw_count,
         'default_score_limit': 8, 'max_score_limit': 24, 'fresh_copy_per_case': True,
+        'punctuation_paging': True, 'paging_boundary_no_commit': True,
+        'no_menu_punctuation_preserved': True, 'ascii_punctuation_preserved': True,
         'protected_table_guard': True, 'protected_sample_raw_count': protected['sample_raw_count'],
         'short_list_sample_raw_count': exhausted['sample_raw_count'],
         'genuine_candidate_types': {'script_translator': sorted(genuine_types(discovery['sampled_snapshot'])),

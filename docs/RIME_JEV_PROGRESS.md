@@ -179,3 +179,18 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Result: source-package preparation achieved. The original tested-source digest and installed binary match `186487664e1c5d974eaed86792c7f4a560b0957a`; subsequent changes are Markdown only. README and LLM_INSTALL now select `v0.5.1` and explain the format compatibility boundary. Source/installer defaults and the current live capture switch are off.
 - Publication target: [GitHub v0.5.1](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.1). Main and the annotated tag will resolve to the same release commit; only source archives will be provided.
 - Next step: complete the full-history/private-file audit, fast-forward main and create the release, then verify remote refs, notes and downloaded archive. Detailed final receipts stay under ignored local evidence. No runtime reinstall or user settings changes are needed.
+
+## 2026-10-15 23:49 SGT — 0.5.2 punctuation candidate paging
+
+- Current work: user requested comma/period candidate paging and local redeployment.
+- Expected result: plain comma pages backward and period forward while a Chinese candidate menu is present; boundary presses do not commit candidates or punctuation. Empty-menu, English and modified keys continue normally.
+- Implementation: a small Jev Lua processor runs before scheme-specific punctuation handlers; existing native sorting locks already cover comma/period. Preserve all other processors, settings and capture state.
+- Budget: focused patch and real-Rime regression, one final full preflight unless source changes, local deployment/read-only smoke; 40-minute working cap and at most five recoveries per failure class. No private input capture or model calls for tests.
+- Result: baseline inspected; implementation in progress.
+- Next step: test actual key events and page-boundary behavior, then commit, preflight and deploy.
+
+### Isolated engine verification
+
+- Current work: added the early Jev paging processor, preserved existing scheme processors, and documented comma/period behavior.
+- Result: achieved. Real librime regression passed all existing cases plus paging forward/back, first/last/single-candidate boundaries, correct selection after navigation, no-menu punctuation, English passthrough and modifier-key behavior. Synthetic fixtures only; no user dictionary or model calls.
+- Next step: exact-source full preflight, backup/local deployment and running-version/compiled-schema verification.

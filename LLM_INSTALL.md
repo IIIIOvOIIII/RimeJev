@@ -1,4 +1,4 @@
-# LLM_INSTALL — RimeJev 0.5.1
+# LLM_INSTALL — RimeJev 0.5.2
 
 This is the dedicated installation contract for an LLM helping a user. 中文：这是提供给安装助手的独立指引；先检查、备份、验证，再安装，不能把构建成功当成真实输入验收。
 
@@ -31,7 +31,7 @@ If these are missing, stop the dependent step and explain what is missing. Use o
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout v0.5.1
+git checkout feat/punctuation-paging
 git rev-parse HEAD  # Record and retain the exact reviewed revision used for installation.
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
@@ -39,7 +39,7 @@ bash scripts/bootstrap_dev.sh
 
 If the checkout already exists, inspect it first, preserve local changes, and explicitly select the requested release. Do not use a floating `git pull` as an install step.
 
-Use the fixed `v0.5.1` tag for this guide and record the resolved commit from `git rev-parse HEAD` in the local installation report. Runtime code was verified and installed locally at `186487664e1c5d974eaed86792c7f4a560b0957a`; subsequent release changes are Markdown only. That historical receipt does not authorize installation from a different commit or on another machine. Run the exact-source preflight below for the selected checkout; never reuse another revision's receipt.
+This guide follows the 0.5.2 `feat/punctuation-paging` development branch. Record the exact checkout commit and run its own preflight. For a formal 0.5.1 installation, select the `v0.5.1` tag and use the guide in that tag; never reuse another revision’s receipt.
 
 The bootstrap uses upstream Squirrel commit `876adebaf2f612951dcdca8a591de65401222b9a` under ignored `work/upstream/squirrel`. It must not force-reset an existing different checkout. The native builder pins librime headers to `a251145d3aafa33871824a40bbec04c966bd8b56` and Sparkle source metadata to `41847a58cdef7506b257591fcca6f9495df591d4`.
 
@@ -176,6 +176,7 @@ Check these cases:
 
 - If a timely confident model decision matches the original first word, the order stays unchanged and that word gets `✦ Jev` or `✦ TT` / `✦ Tev`.
 - In dual mode, if neither model matches first, slots 2/3 follow the configured order. If either matches first, badge first and put the other distinct result second. The next unused native word follows. Same-word recommendations merge source labels without duplication. Missing results leave native fillers. Single-model behavior remains first-preserved/second-recommended.
+- With several candidate pages, press plain period to advance and comma to return, then use a number or Space to select. First/last-page boundary presses must not commit punctuation or a candidate. Check no-menu Chinese punctuation and English punctuation separately. Never use a real user document for these checks.
 - Space selects the original first word. `2` selects the displayed second word. `3` selects the displayed third word. Badges never appear in committed text.
 - Verify that settings initially show all-app defaults off; current-app scope shows the inherited/overridden state. Verify inheritance and reset with isolated test profiles if the user wants the live global default kept off.
 - Move the priority rows both ways and verify persistence; switch all four modes and all three local variants. Only one local process may be active alongside Jev.

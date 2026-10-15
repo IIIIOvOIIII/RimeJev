@@ -8,6 +8,10 @@ Context-aware Chinese candidate recommendations for **Squirrel (鼠须管) + Rim
 
 RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强、云端 Jev、本地模型、云端＋本地模型** 四种模式；本地模型可选 **this-that-model 1.2、Tev 0.8B 或 Tev 4B**。基础输入不等待模型，可设置所有应用默认并为单个应用覆盖，默认关闭增强。
 
+### 候选翻页（0.5.2）
+
+中文候选栏显示时，按 `,`（逗号键）向前翻页，按 `.`（句号键）向后翻页。第一页向前、最后一页向后会停在当前页，不会误选词或输入标点。没有候选栏时保留 `，`、`。` 的正常输入；英文模式和组合快捷键保持原行为。翻页后仍可用数字或空格选词。
+
 ### 所有应用默认设置
 
 打开“语境选词设置”，在“设置范围”中选择 **所有应用默认设置**，统一设置模式、本地模型和推荐顺序。没有单独设置的应用会自动继承，无需逐个开启。新的全局默认初始为 **关闭增强**，升级不会把此前某个应用的云端选择变成全局设置。
@@ -50,7 +54,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 
 ### 安装
 
-这是 **[0.5.1 源码版本](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.1)**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
+当前开发分支为 **0.5.2**（`feat/punctuation-paging`）；最新正式版本为 **[0.5.1 源码版本](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.1)**，没有提供经过 Apple 公证的即装即用安装包。需要 Apple Silicon Mac、macOS 14 或更新版本、Command Line Tools、Python 3.12/3.13、uv，以及已正常运行的鼠须管 1.1.2 和万象方案。
 
 请将 [LLM_INSTALL.md](LLM_INSTALL.md) 交给协助安装的 LLM。它包含环境检查、固定版本依赖、测试、备份、安装、系统授权、手动验收及回退步骤。完整 Xcode 不是前提。不要跳过检查直接运行安装器。
 
@@ -59,7 +63,7 @@ RimeJev 在万象原生候选上增加异步语境推荐，提供 **关闭增强
 ```sh
 git clone https://github.com/IIIIOvOIIII/RimeJev.git
 cd RimeJev
-git checkout v0.5.1
+git checkout feat/punctuation-paging
 uv sync --frozen
 bash scripts/bootstrap_dev.sh
 bash scripts/run_quality_gate.sh --gate local
@@ -118,6 +122,10 @@ TT 权重约 3.5 GiB，Tev 0.8B 约 797 MB，Tev 4B 约 4.36 GB；Tev 还需约 
 
 RimeJev adds asynchronous contextual recommendations to native Wanxiang candidates. Choose **off, Jev cloud, local, or cloud + local** as the default for all applications, with per-app overrides. Select **this-that-model 1.2, Tev 0.8B, or Tev 4B** separately as the one local backend. Enhancement is off by default, and normal input never waits for a model.
 
+### Candidate paging (0.5.2)
+
+With a Chinese candidate menu open, plain comma (`,`) pages backward and period (`.`) pages forward. Pressing past the first/last page stays on the current page without committing a candidate or punctuation. Without a menu, normal Chinese punctuation is preserved; English mode and modified shortcuts keep their existing behavior. Numeric and Space selection still work after paging.
+
 ### Defaults for all applications
 
 Choose **All applications defaults** in the settings scope to configure the mode, local backend, and priority once. Apps without overrides inherit it automatically, without allowlist enrollment. The new global default starts **off**; upgrading never promotes a previously selected app's cloud mode into a global choice.
@@ -160,7 +168,7 @@ The recommendation is removed from its previous position, so it is not duplicate
 
 ### Installation
 
-This is the **[0.5.1 source release](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.1)**; an Apple-notarized installer is not provided. Requirements: Apple Silicon, macOS 14+, Command Line Tools, Python 3.12/3.13, uv, and a working Squirrel 1.1.2 installation with Wanxiang. Full Xcode is not required for this build path. Installation selects the fixed `v0.5.1` tag; record its exact commit and follow the dedicated guide.
+The current development branch is **0.5.2** (`feat/punctuation-paging`); the latest formal release is the **[0.5.1 source release](https://github.com/IIIIOvOIIII/RimeJev/releases/tag/v0.5.1)**; an Apple-notarized installer is not provided. Requirements: Apple Silicon, macOS 14+, Command Line Tools, Python 3.12/3.13, uv, and a working Squirrel 1.1.2 installation with Wanxiang. Full Xcode is not required for this build path. The commands here select the 0.5.2 development branch; record its exact commit and follow the dedicated guide. Use the `v0.5.1` tag and its own guide for that release.
 
 Give [LLM_INSTALL.md](LLM_INSTALL.md) to the LLM assisting with installation. Follow its preflight, backup, build, consent, smoke-test, manual typing, and rollback steps. The commands in the Chinese section are the same commands for English-language installations. Model weights are optional for cloud/off mode and are downloaded separately for local mode. Select TT, Tev 0.8B, or Tev 4B from settings for each application’s local or dual mode. Labels are exactly `✦ TT`, `✦ Tev`, and `✦ Jev`, regardless of recommendation position. Tev uses a pinned local runtime on a dedicated loopback port; it does not replace the system Ollama service or enable cloud inference. Settings expose a separate 0.3–10 second timeout for every model, with restore-default controls. Defaults are 0.6s for Jev/TT/Tev 0.8B and 2s for Tev 4B. Time includes debounce and sampling; continuing input or selection invalidates old results.
 

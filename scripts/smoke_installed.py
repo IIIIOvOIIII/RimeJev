@@ -2,6 +2,7 @@
 """Read-only installation checks; live typing is verified separately."""
 import hashlib,json,plistlib,subprocess,time
 from pathlib import Path
+import yaml
 root=Path(__file__).resolve().parents[1]
 app=Path.home()/'Library/Input Methods/Rime-Jev.app'
 user=Path.home()/'Library/Rime-Jev'
@@ -17,6 +18,8 @@ for localization in (app/'Contents/Resources').glob('*.lproj/InfoPlist.strings')
 subprocess.run(['codesign','--verify','--deep','--strict',str(app)],check=True,capture_output=True)
 assert 'lua_filter@*jev.bridge' in (user/'build/wanxiang.schema.yaml').read_text()
 assert (user/'lua/jev/bridge.lua').read_bytes()==(root/'rime/lua/jev/bridge.lua').read_bytes(), 'Installed candidate placement differs from source'
+assert (user/'lua/jev/paging.lua').read_bytes()==(root/'rime/lua/jev/paging.lua').read_bytes(), 'Installed punctuation paging differs from source'
+assert yaml.safe_load((user/'build/wanxiang.schema.yaml').read_text())['engine']['processors'][0]=='lua_processor@*jev.paging', 'Paging processor is not first in deployed scheme'
 install=json.loads((root/'work/evidence/install.json').read_text())
 assert hashlib.sha256((app/'Contents/MacOS/Squirrel').read_bytes()).hexdigest()==install['binary_sha256']
 sources=json.loads(subprocess.check_output(['swift',str(root/'scripts/input_sources.swift')]))
