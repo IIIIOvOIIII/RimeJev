@@ -194,3 +194,11 @@ Native lifecycle regression now includes a delayed shutdown exceeding the old th
 - Current work: added the early Jev paging processor, preserved existing scheme processors, and documented comma/period behavior.
 - Result: achieved. Real librime regression passed all existing cases plus paging forward/back, first/last/single-candidate boundaries, correct selection after navigation, no-menu punctuation, English passthrough and modifier-key behavior. Synthetic fixtures only; no user dictionary or model calls.
 - Next step: exact-source full preflight, backup/local deployment and running-version/compiled-schema verification.
+
+### 2026-10-15 23:57 SGT — 0.5.2 installed and verified
+
+- Current work: deployed `eb95760885205b0eeaf8813702cd3655139cf584` using the project's validated installer.
+- Expected result: comma/period candidate paging available locally with safe page boundaries and unchanged user settings.
+- Result: achieved. Full preflight and read-only installation smoke passed, running version is 0.5.2, installed binary/Lua match receipts and compiled scheme places the pager first exactly once. The 446 real-Rime probes cover new paging behavior and existing candidate regression. Saved settings and unrelated customizations remain unchanged; capture remains off.
+- Publication: implementation and closure records are on `feat/punctuation-paging`; no formal release was requested in this task. Private settings/backups and test evidence remain ignored.
+- Next step: normal use; no required development/deployment work remains. Native host typing is separate from the engine and installation evidence above.
